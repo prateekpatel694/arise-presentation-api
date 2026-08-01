@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Animated, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -28,16 +28,19 @@ export default function Index() {
   }, []);
 
   const checkChallengeStatus = async () => {
-    const hasStarted = await AsyncStorage.getItem('challenge_started');
-    if (hasStarted === 'true') {
-      setTimeout(() => {
-        router.replace('/dashboard');
-      }, 2000);
+    try {
+      // FIX: Yahan app memory check karega ki challenge shuru hua hai ya nahi
+      const hasStarted = await AsyncStorage.getItem('challenge_started');
+      if (hasStarted === 'true') {
+        // Agar pehle se start hai, toh seedha Dashboard par jao!
+        router.replace('/dashboard'); 
+      }
+    } catch (error) {
+      console.error('Error checking status:', error);
     }
   };
 
   const handleStart = async () => {
-    await AsyncStorage.setItem('challenge_started', 'true');
     router.push('/onboarding');
   };
 

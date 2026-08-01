@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "b913b6c6-6a24-4869-bf15-876245aabedb"
+      }
+    },
+    "android": {
+      "package": "com.shadow_monarch.shadow_protocol"
+    }
+  }
+}

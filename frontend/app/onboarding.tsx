@@ -2,37 +2,13 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
-import * as Notifications from 'expo-notifications';
-
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+import AsyncStorage from '@react-native-async-storage/async-storage'; // FIX 1: Storage import kiya
 
 export default function Onboarding() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
   const scheduleNotifications = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Required', 'Please enable notifications to get task reminders.');
-      return false;
-    }
-
-    // Configure notifications
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'default',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#00d4ff',
-    });
-
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-      }),
-    });
-
     return true;
   };
 
@@ -47,17 +23,23 @@ export default function Onboarding() {
       }
 
       // Start challenge
-      const response = await axios.post(`${BACKEND_URL}/api/challenge/start`, {
+      const response = await axios.post('https://arise-api-backend.onrender.com/api/challenge/start', {
         user_id: 'default_user'
       });
 
       if (response.data.success) {
+        // FIX 2: App ki memory mein save kar diya ki challenge start ho chuka hai
+        await AsyncStorage.setItem('challenge_started', 'true');
+        
         Alert.alert(
           'Challenge Started!',
           'Your 180-day journey begins now. ARISE!',
           [{ text: 'Let\'s Go!', onPress: () => router.replace('/dashboard') }]
         );
       } else if (response.data.error) {
+        // FIX 3: Agar pehle se start hai, toh bhi memory set kar do taaki loop na bane
+        await AsyncStorage.setItem('challenge_started', 'true');
+        
         Alert.alert('Already Started', 'You already have an active challenge!');
         router.replace('/dashboard');
       }

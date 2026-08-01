@@ -2,10 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, Alert, Animated } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
-import * as Notifications from 'expo-notifications';
 import { format } from 'date-fns';
-
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
 interface Task {
   time: string;
@@ -47,18 +44,17 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-    scheduleTaskNotifications();
   }, []);
 
   const loadData = async () => {
     try {
-      const response = await axios.get(`${BACKEND_URL}/api/challenge/current?user_id=default_user`);
+      const response = await axios.get("https://arise-api-backend.onrender.com/api/challenge/current?user_id=default_user");
       
-      if (response.data.active) {
+      // FIX 1: Removed strict '.active' check. Direct data check kiya hai.
+      if (response.data && response.data.challenge && response.data.today) {
         setChallenge(response.data.challenge);
         setToday(response.data.today);
         
-        // Show alert if app just opened
         const missedTasks = response.data.today.tasks.filter((t: Task) => !t.completed).length;
         if (missedTasks > 0) {
           Alert.alert(
@@ -72,45 +68,8 @@ export default function Dashboard() {
       }
     } catch (error) {
       console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load challenge data');
-    }
-  };
-
-  const scheduleTaskNotifications = async () => {
-    try {
-      // Cancel existing notifications
-      await Notifications.cancelAllScheduledNotificationsAsync();
-
-      const response = await axios.get(`${BACKEND_URL}/api/challenge/current?user_id=default_user`);
-      if (response.data.active && response.data.today) {
-        const tasks = response.data.today.tasks;
-        
-        tasks.forEach((task: Task, index: number) => {
-          const [hours, minutes] = task.time.split(':').map(Number);
-          const now = new Date();
-          const taskTime = new Date();
-          taskTime.setHours(hours, minutes, 0, 0);
-
-          // If task time is in the past today, schedule for tomorrow
-          if (taskTime < now) {
-            taskTime.setDate(taskTime.getDate() + 1);
-          }
-
-          const trigger = taskTime;
-
-          Notifications.scheduleNotificationAsync({
-            content: {
-              title: '⚔️ Task Reminder',
-              body: `Time to: ${task.task}`,
-              sound: true,
-              priority: Notifications.AndroidNotificationPriority.HIGH,
-            },
-            trigger,
-          });
-        });
-      }
-    } catch (error) {
-      console.error('Error scheduling notifications:', error);
+      Alert.alert('System Error', 'Server se connect nahi ho paya.');
+      router.replace('/'); // Ye tumhe loading par atakne se bacha lega
     }
   };
 
@@ -124,7 +83,6 @@ export default function Dashboard() {
 
     const newStatus = !currentStatus;
     
-    // Trigger animation
     setAnimatingTask(taskIndex);
     Animated.sequence([
       Animated.timing(slashAnim, {
@@ -140,23 +98,23 @@ export default function Dashboard() {
     ]).start(() => setAnimatingTask(null));
 
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/challenge/mark-task?user_id=default_user`, {
+      // FIX 2: Placeholder hata kar asli task endpoint lagaya hai
+      const response = await axios.post(`https://arise-api-backend.onrender.com/api/challenge/task`, {
+        user_id: "default_user",
         day_number: today.day_number,
         task_index: taskIndex,
         completed: newStatus,
       });
 
-      if (response.data.success) {
-        // Update local state
+      if (response.data) {
         const updatedTasks = [...today.tasks];
         updatedTasks[taskIndex].completed = newStatus;
         setToday({
           ...today,
           tasks: updatedTasks,
-          completion_percentage: response.data.completion_percentage,
+          completion_percentage: response.data.completion_percentage || today.completion_percentage,
         });
 
-        // Reload full data to update stats
         loadData();
       }
     } catch (error) {
@@ -167,7 +125,7 @@ export default function Dashboard() {
 
   const getRankColor = (rank: string) => {
     const colors: { [key: string]: string } = {
-      'National': '#ffd700',
+      '1%': '#ffd700',
       'S': '#ff00ff',
       'A': '#00ff00',
       'B': '#00d4ff',
@@ -181,14 +139,13 @@ export default function Dashboard() {
   if (!challenge || !today) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Awakening System...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -203,7 +160,6 @@ export default function Dashboard() {
         <Text style={styles.completionText}>{today.completion_percentage.toFixed(0)}% Complete</Text>
       </View>
 
-      {/* Tasks List */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -275,7 +231,6 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
-      {/* Stats Button */}
       <TouchableOpacity style={styles.statsButton} onPress={() => router.push('/stats')}>
         <Text style={styles.statsButtonText}>VIEW STATS & PROGRESS</Text>
       </TouchableOpacity>
@@ -432,10 +387,8 @@ const styles = StyleSheet.create({
   },
   slashEffect: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
     backgroundColor: '#00d4ff',
     height: 4,
     top: '50%',
