@@ -50,8 +50,8 @@ export default function StatsScreen() {
   const loadData = async () => {
     try {
       const [currentResponse, historyResponse] = await Promise.all([
-        axios.get(`https://arise-api-backend.onrender.com/api/challenge/current?user_id=default_user`),
-        axios.get(`https://arise-api-backend.onrender.com/api/challenge/history?user_id=default_user&days=30`),
+        axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=default_user`),
+        axios.get(`https://arise-presentation-api.onrender.com/api/challenge/history?user_id=default_user&days=30`),
       ]);
 
       if (currentResponse.data && currentResponse.data.challenge) {

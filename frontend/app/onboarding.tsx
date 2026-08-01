@@ -23,7 +23,7 @@ export default function Onboarding() {
       }
 
       // Start challenge
-      const response = await axios.post('https://arise-api-backend.onrender.com/api/challenge/start', {
+      const response = await axios.post('https://arise-presentation-api.onrender.com/api/challenge/start', {
         user_id: 'default_user'
       });
 
