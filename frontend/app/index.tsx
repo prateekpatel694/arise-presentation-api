@@ -18,17 +18,33 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
-  // Forgot Password States
+  // Forgot Password & Timer States
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
   const [resetStep, setResetStep] = useState<1 | 2>(1);
   const [resetEmail, setResetEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [timer, setTimer] = useState(60);
+  const [canResend, setCanResend] = useState(false);
 
   useEffect(() => {
     checkExistingAuth();
   }, []);
+
+  // 60-SECOND COUNTDOWN TIMER LOGIC
+  useEffect(() => {
+    let interval: any = null;
+    if (forgotModalVisible && resetStep === 2 && timer > 0) {
+      interval = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    } else if (timer === 0) {
+      setCanResend(true);
+      clearInterval(interval);
+    }
+    return () => clearInterval(interval);
+  }, [forgotModalVisible, resetStep, timer]);
 
   const checkExistingAuth = async () => {
     try {
@@ -98,12 +114,32 @@ export default function AuthScreen() {
         email: resetEmail.trim().toLowerCase()
       });
       if (res.data.success) {
-        // STRICT SECURE RESPONSE: Never display OTP on screen
         Alert.alert('OTP Sent 📩', res.data.message);
         setResetStep(2);
+        setTimer(60);
+        setCanResend(false);
       }
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.detail || 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    if (!canResend) return;
+    setLoading(true);
+    try {
+      const res = await axios.post("https://arise-presentation-api.onrender.com/api/auth/forgot-password", {
+        email: resetEmail.trim().toLowerCase()
+      });
+      if (res.data.success) {
+        Alert.alert('New OTP Sent 📩', 'A fresh OTP code has been sent to your email!');
+        setTimer(60);
+        setCanResend(false);
+      }
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to resend OTP');
     } finally {
       setLoading(false);
     }
@@ -122,7 +158,7 @@ export default function AuthScreen() {
         new_password: newPassword.trim()
       });
       if (res.data.success) {
-        Alert.alert('Success 🎉', 'Password reset successfully! You can now login with your new password.');
+        Alert.alert('Success 🎉', 'Password reset successful! You can now login.');
         handleCancelModal();
       }
     } catch (err: any) {
@@ -132,7 +168,6 @@ export default function AuthScreen() {
     }
   };
 
-  // AUTOMATIC REFRESH AND STATE RESET ON CANCEL
   const handleCancelModal = () => {
     setForgotModalVisible(false);
     setResetStep(1);
@@ -140,6 +175,8 @@ export default function AuthScreen() {
     setOtpCode('');
     setNewPassword('');
     setShowNewPassword(false);
+    setTimer(60);
+    setCanResend(false);
   };
 
   if (checkingAuth) {
@@ -250,6 +287,22 @@ export default function AuthScreen() {
                   keyboardType="numeric"
                 />
 
+                {/* 60s TIMER & RESEND BTN */}
+                <View style={styles.timerRow}>
+                  <Text style={styles.timerText}>
+                    {canResend ? "Didn't receive OTP?" : `Resend in ${timer}s`}
+                  </Text>
+                  <TouchableOpacity 
+                    onPress={handleResendOTP} 
+                    disabled={!canResend || loading}
+                    style={styles.resendBtn}
+                  >
+                    <Text style={[styles.resendBtnText, !canResend && styles.resendBtnDisabled]}>
+                      RESEND OTP 🔄
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 <Text style={styles.label}>NEW PASSWORD</Text>
                 <View style={styles.passwordContainer}>
                   <TextInput
@@ -271,7 +324,6 @@ export default function AuthScreen() {
               </>
             )}
 
-            {/* AUTOMATIC REFRESH ON CANCEL CLICK */}
             <TouchableOpacity style={{ marginTop: 16, alignItems: 'center' }} onPress={handleCancelModal}>
               <Text style={{ color: '#ff6b6b', fontWeight: '800' }}>CANCEL</Text>
             </TouchableOpacity>
@@ -303,5 +355,10 @@ const styles = StyleSheet.create({
   toggleText: { color: '#00d4ff', fontSize: 13, fontWeight: '700' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 24 },
-  modalTitle: { color: '#00d4ff', fontSize: 18, fontWeight: '900', textAlign: 'center', marginBottom: 12 }
+  modalTitle: { color: '#00d4ff', fontSize: 18, fontWeight: '900', textAlign: 'center', marginBottom: 12 },
+  timerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  timerText: { color: '#8b9dc3', fontSize: 12, fontWeight: '700' },
+  resendBtn: { paddingVertical: 4 },
+  resendBtnText: { color: '#00d4ff', fontSize: 12, fontWeight: '900' },
+  resendBtnDisabled: { color: '#555555' }
 });

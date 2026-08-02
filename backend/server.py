@@ -8,8 +8,7 @@ import bcrypt
 import jwt
 import os
 import random
-import smtplib
-from email.mime.text import MIMEText
+import requests
 
 app = FastAPI()
 
@@ -23,9 +22,10 @@ otps_collection = db.password_reset_otps
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
-# --- EXACT GMAIL SMTP CONFIGURATION ---
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "kingdom9152@gmail.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "rdgcrmjirphwrsvl")
+# --- BREVO HTTP API CONFIGURATION ---
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "prateekpatel696@gmail.com")
+SENDER_NAME = "ARISE Protocol"
 
 app.add_middleware(
     CORSMiddleware,
@@ -102,31 +102,40 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
-# FAST BACKGROUND EMAIL DISPATCH VIA KINGDOM9152@GMAIL.COM
-def send_email_otp_fast(to_email: str, otp_code: str):
+# BREVO DIRECT HTTP API EMAIL DISPATCH
+def send_email_otp_brevo(to_email: str, otp_code: str):
+    if not BREVO_API_KEY:
+        print("BREVO_API_KEY environment variable missing!")
+        return
+
+    url = "https://api.brevo.com/v3/smtp/email"
+    payload = {
+        "sender": {"name": SENDER_NAME, "email": SENDER_EMAIL},
+        "to": [{"email": to_email}],
+        "subject": "⚔️ ARISE PROTOCOL - Password Reset Verification Code",
+        "htmlContent": f"""
+        <div style='background-color:#0a0e27; padding:24px; color:#ffffff; font-family:Arial,sans-serif; border:2px solid #00d4ff; border-radius:12px;'>
+            <h2 style='color:#00d4ff; text-align:center;'>⚔️ ARISE PROTOCOL SYSTEM</h2>
+            <p style='font-size:16px;'>Monarch!</p>
+            <p style='font-size:15px;'>Your 6-Digit Password Reset OTP Verification Code is:</p>
+            <div style='background-color:rgba(0, 212, 255, 0.1); border:1px solid #00d4ff; padding:16px; text-align:center; font-size:28px; font-weight:bold; letter-spacing:6px; color:#00ff64; margin:20px 0;'>
+                {otp_code}
+            </div>
+            <p style='font-size:13px; color:#8b9dc3;'>This code is valid for 10 minutes. Do not share this OTP with anyone.</p>
+        </div>
+        """
+    }
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json"
+    }
+
     try:
-        subject = "⚔️ ARISE PROTOCOL - Password Reset Verification Code"
-        body = f"""Monarch!
-
-Your 6-Digit Password Reset OTP Verification Code is:
-
-👉 {otp_code} 👈
-
-This code is valid for 10 minutes. Do not share this code with anyone.
-
-- ARISE System Security Protocol
-"""
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = f"ARISE Protocol <{SMTP_EMAIL}>"
-        msg['To'] = to_email
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"OTP Email successfully sent to {to_email} via {SMTP_EMAIL}")
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"Brevo API Response Status: {response.status_code}")
     except Exception as e:
-        print(f"SMTP Email Error: {e}")
+        print(f"Brevo API Dispatch Error: {e}")
 
 # --- HEALTH CHECK ---
 @app.get("/")
@@ -206,7 +215,7 @@ async def login(user_data: LoginRequest):
         "message": f"Welcome Back, Monarch {username}!"
     }
 
-# --- SECURE FORGOT & RESET PASSWORD ---
+# --- FORGOT & RESET PASSWORD ---
 @app.post("/api/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTasks):
     email_clean = req.email.strip().lower()
@@ -224,11 +233,11 @@ async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTa
         upsert=True
     )
 
-    background_tasks.add_task(send_email_otp_fast, email_clean, otp_code)
+    background_tasks.add_task(send_email_otp_brevo, email_clean, otp_code)
 
     return {
         "success": True,
-        "message": f"OTP Verification Code sent to {email_clean}! Please check your email inbox or spam folder."
+        "message": f"OTP Verification Code sent to {email_clean}! Please check your email inbox."
     }
 
 @app.post("/api/auth/reset-password")
@@ -240,7 +249,7 @@ async def reset_password(req: VerifyResetReq):
         raise HTTPException(status_code=400, detail="Invalid OTP Code!")
 
     if get_ist_time() > record.get("expires_at"):
-        raise HTTPException(status_code=400, detail="OTP Code Expired! Please request a new one.")
+        raise HTTPException(status_code=400, detail="OTP Code Expired! Please click Resend OTP.")
 
     hashed_pwd = hash_password(req.new_password.strip())
     await users_collection.update_one({"email": email_clean}, {"$set": {"password": hashed_pwd}})
@@ -272,10 +281,10 @@ async def get_current_status(user_id: str = "default_user"):
             start_date = ist_now 
             
         current_day = max(1, (ist_now.date() - start_date.date()).days + 1)
-        history = user.get("history")
+        history = user.get("history", {})
         if not isinstance(history, dict): history = {}
             
-        completed_today = history.get(today_str)
+        completed_today = history.get(today_str, [])
         if not isinstance(completed_today, list): completed_today = []
 
         tasks_response = []
