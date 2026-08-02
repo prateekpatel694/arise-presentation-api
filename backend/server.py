@@ -23,9 +23,9 @@ otps_collection = db.password_reset_otps
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
-# SMTP Credentials for Fast Gmail OTP Sending
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "your_email@gmail.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "your_app_password")
+# SMTP Credentials for Fast Gmail OTP
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "prateekpatel694@gmail.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,7 +86,7 @@ def calculate_rank(percentage):
     elif percentage >= 65: return "C"
     elif percentage >= 50: return "D"
     elif percentage >= 30: return "E"
-    else: return "F"
+    else: return "F" 
 
 def hash_password(password: str) -> str:
     pwd_bytes = password.encode('utf-8')
@@ -103,21 +103,25 @@ def create_access_token(data: dict):
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
 def send_email_otp_fast(to_email: str, otp_code: str):
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        print("SMTP Credentials not set. Debug OTP is:", otp_code)
+        return
     try:
-        subject = "⚔️ ARISE PROTOCOL - OTP Verification Code"
-        body = f"Monarch!\n\nYour 6-Digit Password Reset OTP Code is: {otp_code}\n\nThis code is valid for 10 minutes. Do not share it with anyone."
+        subject = "⚔️ ARISE PROTOCOL - Password Reset OTP Code"
+        body = f"Monarch!\n\nYour 6-Digit Password Reset OTP Verification Code is: {otp_code}\n\nThis code is valid for 10 minutes. Do not share it with anyone."
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = SMTP_EMAIL
         msg['To'] = to_email
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=5) as server:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+        print(f"OTP Email sent successfully to {to_email}")
     except Exception as e:
-        print(f"SMTP Error: {e}")
+        print(f"SMTP Dispatch Error: {e}")
 
-# --- HEALTH CHECK ROUTE ---
+# --- HEALTH CHECK ---
 @app.get("/")
 async def health():
     try:
@@ -126,7 +130,7 @@ async def health():
     except Exception as e:
         return {"status": "Online", "database": f"Error: {str(e)} ❌"}
 
-# --- AUTHENTICATION ENDPOINTS ---
+# --- AUTHENTICATION ROUTES ---
 @app.post("/api/auth/register")
 @app.post("/auth/register")
 async def register(user_data: RegisterRequest):
@@ -136,12 +140,10 @@ async def register(user_data: RegisterRequest):
     if len(username_clean) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters!")
 
-    # Check for Unique Username
     existing_username = await users_collection.find_one({"username_lower": username_clean.lower()})
     if existing_username:
-        raise HTTPException(status_code=400, detail="This Username is already taken! Choose another Shadow name.")
+        raise HTTPException(status_code=400, detail="This Username is already taken! Try another.")
 
-    # Check for Existing Email
     existing_email = await users_collection.find_one({"email": email_clean})
     if existing_email:
         raise HTTPException(status_code=400, detail="User already exists with this email!")
@@ -149,7 +151,6 @@ async def register(user_data: RegisterRequest):
     hashed_pwd = hash_password(user_data.password.strip())
     ist_now = get_ist_time()
     
-    # New account created with empty tasks array
     new_user = {
         "username": username_clean,
         "username_lower": username_clean.lower(),
@@ -198,7 +199,7 @@ async def login(user_data: LoginRequest):
         "message": f"Welcome Back, Monarch {username}!"
     }
 
-# --- FORGOT & RESET PASSWORD ENDPOINTS ---
+# --- FORGOT & RESET PASSWORD ---
 @app.post("/api/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTasks):
     email_clean = req.email.strip().lower()
@@ -220,7 +221,7 @@ async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTa
 
     return {
         "success": True,
-        "message": f"OTP Verification Code sent to {email_clean}! Check inbox.",
+        "message": f"OTP Verification Code sent to {email_clean}! Check your email inbox or spam.",
         "debug_otp": otp_code
     }
 
@@ -233,15 +234,15 @@ async def reset_password(req: VerifyResetReq):
         raise HTTPException(status_code=400, detail="Invalid OTP Code!")
 
     if get_ist_time() > record.get("expires_at"):
-        raise HTTPException(status_code=400, detail="OTP Code Expired! Please request a new one.")
+        raise HTTPException(status_code=400, detail="OTP Code Expired! Request a new one.")
 
     hashed_pwd = hash_password(req.new_password.strip())
     await users_collection.update_one({"email": email_clean}, {"$set": {"password": hashed_pwd}})
     await otps_collection.delete_one({"email": email_clean})
 
-    return {"success": True, "message": "Password reset successful! You can now login with your new password."}
+    return {"success": True, "message": "Password reset successful! You can now login."}
 
-# --- CHALLENGE & QUEST MANAGEMENT ENDPOINTS ---
+# --- QUEST MANAGEMENT ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:

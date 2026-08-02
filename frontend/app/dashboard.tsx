@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, 
-  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform 
+  Alert, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform 
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
@@ -284,17 +284,17 @@ export default function Dashboard() {
 
         <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMM dd')}</Text>
 
-        {/* USERNAME BADGE RIGHT TO 100% COMPLETE */}
+        {/* CLEAN USERNAME BADGE NO CENTER LINE */}
         <View style={styles.completionAndNameRow}>
           <Text style={styles.completionText}>{today.completion_percentage.toFixed(0)}% Complete</Text>
 
           <LinearGradient
-            colors={['rgba(0, 212, 255, 0.25)', 'rgba(0, 255, 100, 0.25)']}
+            colors={['#00d4ff', '#00ff64']}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cyberNameCard}
+            end={{ x: 1, y: 0 }}
+            style={styles.cleanCyberBadge}
           >
-            <Text style={styles.cyberNameText}>
+            <Text style={styles.cleanCyberText}>
               ⚔️ {userName.toUpperCase()}
             </Text>
           </LinearGradient>
@@ -486,10 +486,10 @@ const styles = StyleSheet.create({
   rankText: { fontSize: 20, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
   levelText: { fontSize: 18, fontWeight: '900', color: '#00d4ff' },
   dayText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
-  completionAndNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  completionAndNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
   completionText: { fontSize: 20, fontWeight: '800', color: '#00d4ff' },
-  cyberNameCard: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1.5, borderColor: '#00d4ff', shadowColor: '#00d4ff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 6 },
-  cyberNameText: { fontSize: 13, fontWeight: '900', color: '#00ff64', letterSpacing: 1 },
+  cleanCyberBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  cleanCyberText: { fontSize: 13, fontWeight: '900', color: '#0a0e27', letterSpacing: 1 },
   logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   logoutText: { color: '#ff6b6b', fontSize: 11, fontWeight: '900' },
   dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 2 },
