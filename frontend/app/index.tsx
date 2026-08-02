@@ -20,10 +20,11 @@ export default function AuthScreen() {
 
   // Forgot Password States
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
-  const [resetStep, setResetStep] = useState<1 | 2>(1); // Step 1: Request OTP, Step 2: Enter OTP & New Password
+  const [resetStep, setResetStep] = useState<1 | 2>(1);
   const [resetEmail, setResetEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
 
   useEffect(() => {
     checkExistingAuth();
@@ -97,7 +98,7 @@ export default function AuthScreen() {
         email: resetEmail.trim()
       });
       if (res.data.success) {
-        Alert.alert('OTP Sent', `6-Digit OTP: ${res.data.debug_otp}\n\nEnter this OTP to reset password.`);
+        Alert.alert('OTP Sent 📩', res.data.message);
         setResetStep(2);
       }
     } catch (err: any) {
@@ -205,7 +206,7 @@ export default function AuthScreen() {
         </View>
       </ScrollView>
 
-      {/* FORGOT PASSWORD MODAL */}
+      {/* FORGOT PASSWORD MODAL WITH EYE TOGGLE */}
       <Modal visible={forgotModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -238,15 +239,22 @@ export default function AuthScreen() {
                   onChangeText={setOtpCode}
                   keyboardType="numeric"
                 />
+
                 <Text style={styles.label}>NEW PASSWORD</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="••••••••••••"
-                  placeholderTextColor="#666"
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  secureTextEntry
-                />
+                <View style={styles.passwordContainer}>
+                  <TextInput
+                    style={styles.passwordInput}
+                    placeholder="••••••••••••"
+                    placeholderTextColor="#666"
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry={!showNewPassword}
+                  />
+                  <TouchableOpacity style={styles.eyeIconContainer} onPress={() => setShowNewPassword(!showNewPassword)}>
+                    <Ionicons name={showNewPassword ? "eye-outline" : "eye-off-outline"} size={22} color="#00d4ff" />
+                  </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity style={styles.submitBtn} onPress={handleResetPassword} disabled={loading}>
                   <Text style={styles.submitBtnText}>VERIFY & RESET ⚡</Text>
                 </TouchableOpacity>

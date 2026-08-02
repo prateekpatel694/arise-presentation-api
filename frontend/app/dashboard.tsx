@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays } from 'date-fns';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width } = Dimensions.get('window');
 
@@ -296,7 +297,7 @@ export default function Dashboard() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION WITH USERNAME BADGE & LOGOUT BUTTON */}
+      {/* HEADER SECTION WITH USERNAME GRADIENT BADGE & LOGOUT */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -305,14 +306,22 @@ export default function Dashboard() {
             </Text>
           </View>
           
-          <View style={{ alignItems: 'flex-start', flex: 1, marginLeft: 16 }}>
-            {/* ⚔️ UNIQUE HUNTER USERNAME DISPLAY BADGE */}
-            <Text style={styles.userNameBadge}>
-              ⚔️ {userName.toUpperCase()}
-            </Text>
+          <View style={{ alignItems: 'flex-start', marginLeft: 16 }}>
             <Text style={styles.levelText}>LVL {challenge.current_level}</Text>
             <Text style={styles.dayText}>Day {challenge.current_day}/180</Text>
           </View>
+
+          {/* ⚔️ RIGHT SECTION: CYBER-GLOW GRADIENT USERNAME BADGE */}
+          <LinearGradient
+            colors={['rgba(0, 212, 255, 0.25)', 'rgba(0, 255, 100, 0.25)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.cyberNameCard}
+          >
+            <Text style={styles.cyberNameText}>
+              ⚔️ {userName.toUpperCase()}
+            </Text>
+          </LinearGradient>
 
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
             <Text style={styles.logoutText}>EXIT 🚪</Text>
@@ -554,13 +563,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0e27' },
   header: { padding: 20, paddingTop: 48, backgroundColor: 'rgba(0, 212, 255, 0.05)', borderBottomWidth: 2, borderBottomColor: '#00d4ff' },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  rankBadge: { width: 68, height: 68, borderRadius: 14, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', transform: [{ rotate: '45deg' }] },
-  rankText: { fontSize: 22, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
-  userNameBadge: { fontSize: 16, fontWeight: '900', color: '#ffd700', letterSpacing: 1, marginBottom: 2 },
-  levelText: { fontSize: 20, fontWeight: '900', color: '#00d4ff' },
-  dayText: { fontSize: 14, fontWeight: '700', color: '#ffffff' },
-  logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  logoutText: { color: '#ff6b6b', fontSize: 12, fontWeight: '900' },
+  rankBadge: { width: 64, height: 64, borderRadius: 14, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', transform: [{ rotate: '45deg' }] },
+  rankText: { fontSize: 20, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
+  levelText: { fontSize: 18, fontWeight: '900', color: '#00d4ff' },
+  dayText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
+  cyberNameCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#00d4ff',
+    shadowColor: '#00d4ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 6,
+    elevation: 6
+  },
+  cyberNameText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#00ff64',
+    letterSpacing: 1,
+    textShadowColor: '#00d4ff',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 4
+  },
+  logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  logoutText: { color: '#ff6b6b', fontSize: 11, fontWeight: '900' },
   dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 6 },
   completionText: { fontSize: 20, fontWeight: '800', color: '#00d4ff' },
   tasksList: { flex: 1 },
