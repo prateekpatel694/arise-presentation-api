@@ -16,7 +16,6 @@ interface Task {
   task: string;
   duration: number;
   completed: boolean;
-  completed_at?: string;
   task_type?: 'permanent' | 'temporary';
   start_date?: string;
   end_date?: string;
@@ -51,17 +50,15 @@ export default function Dashboard() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [today, setToday] = useState<DailyProgress | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [animatingTask, setAnimatingTask] = useState<number | null>(null);
-  const [slashAnim] = useState(new Animated.Value(0));
 
-  // Add Task Modal States
+  // Add Task Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskTime, setTaskTime] = useState('12:00 PM');
   const [taskDuration, setTaskDuration] = useState('30');
   const [taskType, setTaskType] = useState<'permanent' | 'temporary'>('permanent');
-  
-  // Custom Visual Calendar States
+
+  // Calendar Modal
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
   const [calendarVisible, setCalendarVisible] = useState(false);
@@ -80,43 +77,26 @@ export default function Dashboard() {
       const storedUserName = await AsyncStorage.getItem('username');
       
       const activeId = storedUserId || 'default_user';
-      if (storedUserName) {
-        setUserName(storedUserName);
-      }
-      
+      if (storedUserName) setUserName(storedUserName);
       setUserId(activeId);
       await loadData(activeId);
     } catch (error) {
-      console.error('User initialization error:', error);
-      loadData('default_user');
+      console.error(error);
     }
   };
 
   const loadData = async (activeUserId: string) => {
     try {
       const response = await axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}`);
-      
       if (response.data) {
-        if (response.data.username) {
-          setUserName(response.data.username);
-        }
-
+        if (response.data.username) setUserName(response.data.username);
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
-          
-          const sortedTasks = [...response.data.today.tasks].sort((a, b) => {
-            const typeA = a.task_type || 'permanent';
-            const typeB = b.task_type || 'permanent';
-            if (typeA === 'permanent' && typeB === 'temporary') return -1;
-            if (typeA === 'temporary' && typeB === 'permanent') return 1;
-            return 0;
-          });
-
-          setToday({ ...response.data.today, tasks: sortedTasks });
+          setToday(response.data.today);
         }
       }
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      console.error(error);
     }
   };
 
@@ -140,39 +120,37 @@ export default function Dashboard() {
   };
 
   const handleTaskPress = async (taskIndex: number, currentStatus: boolean) => {
-    if (!today) return;
-
-    const newStatus = !currentStatus;
-    setAnimatingTask(taskIndex);
-
-    Animated.sequence([
-      Animated.timing(slashAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slashAnim, {
-        toValue: 0,
-        duration: 0,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setAnimatingTask(null));
-
     try {
-      const response = await axios.post(`https://arise-presentation-api.onrender.com/api/challenge/task`, {
+      await axios.post(`https://arise-presentation-api.onrender.com/api/challenge/task`, {
         user_id: userId,
-        day_number: today.day_number,
         task_index: taskIndex,
-        completed: newStatus,
+        completed: !currentStatus,
       });
-
-      if (response.data) {
-        loadData(userId);
-      }
+      loadData(userId);
     } catch (error) {
-      console.error('Error marking task:', error);
       Alert.alert('Error', 'Failed to update task status');
     }
+  };
+
+  const handleDeleteTask = async (taskIndex: number) => {
+    Alert.alert('Delete Quest', 'Are you sure you want to delete this quest permanently?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete 🗑️',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await axios.post("https://arise-presentation-api.onrender.com/api/challenge/task/delete", {
+              user_id: userId,
+              task_index: taskIndex
+            });
+            loadData(userId);
+          } catch (e) {
+            Alert.alert('Error', 'Failed to delete task');
+          }
+        }
+      }
+    ]);
   };
 
   const openCalendarFor = (target: 'start' | 'end') => {
@@ -186,9 +164,7 @@ export default function Dashboard() {
   const confirmDateSelection = () => {
     if (activeDateTarget === 'start') {
       setStartDate(tempSelectedDate);
-      if (tempSelectedDate > endDate) {
-        setEndDate(tempSelectedDate);
-      }
+      if (tempSelectedDate > endDate) setEndDate(tempSelectedDate);
     } else {
       setEndDate(tempSelectedDate);
     }
@@ -217,10 +193,8 @@ export default function Dashboard() {
         setIsModalVisible(false);
         setTaskTitle('');
         loadData(userId);
-        Alert.alert('Success', 'New Task added to Shadow Protocol!');
       }
     } catch (error) {
-      console.error('Error adding task:', error);
       Alert.alert('Error', 'Failed to add custom task');
     } finally {
       setAddingTask(false);
@@ -229,13 +203,7 @@ export default function Dashboard() {
 
   const getRankColor = (rank: string) => {
     const colors: { [key: string]: string } = {
-      '1%': '#ffd700',
-      'S': '#ff00ff',
-      'A': '#00ff00',
-      'B': '#00d4ff',
-      'C': '#ffaa00',
-      'D': '#888888',
-      'E': '#666666',
+      '1%': '#ffd700', 'S': '#ff00ff', 'A': '#00ff00', 'B': '#00d4ff', 'C': '#ffaa00', 'D': '#888888', 'E': '#666666'
     };
     return colors[rank] || '#666666';
   };
@@ -252,7 +220,7 @@ export default function Dashboard() {
 
     while (day <= endDateGrid) {
       for (let i = 0; i < 7; i++) {
-        const cloneDay = day;
+        const cloneDay = new Date(day.getTime());
         const isSelected = isSameDay(day, tempSelectedDate);
         const isCurrentMonth = isSameMonth(day, monthStart);
 
@@ -261,15 +229,15 @@ export default function Dashboard() {
             key={day.toString()}
             style={[
               styles.calendarDayCell,
-              isSelected && styles.calendarDaySelected,
-              !isCurrentMonth && styles.calendarDayDisabled,
+              isSelected ? styles.calendarDaySelected : null,
+              !isCurrentMonth ? styles.calendarDayDisabled : null,
             ]}
             onPress={() => setTempSelectedDate(cloneDay)}
           >
             <Text style={[
               styles.calendarDayText,
-              isSelected && styles.calendarDayTextSelected,
-              !isCurrentMonth && styles.calendarDayTextDisabled
+              isSelected ? styles.calendarDayTextSelected : null,
+              !isCurrentMonth ? styles.calendarDayTextDisabled : null
             ]}>
               {format(day, 'd')}
             </Text>
@@ -278,9 +246,7 @@ export default function Dashboard() {
         day = addDays(day, 1);
       }
       rows.push(
-        <View style={styles.calendarRow} key={day.toString()}>
-          {days}
-        </View>
+        <View style={styles.calendarRow} key={day.toString()}>{days}</View>
       );
       days = [];
     }
@@ -297,7 +263,7 @@ export default function Dashboard() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION WITH USERNAME GRADIENT BADGE & LOGOUT */}
+      {/* HEADER SECTION */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -306,12 +272,22 @@ export default function Dashboard() {
             </Text>
           </View>
           
-          <View style={{ alignItems: 'flex-start', marginLeft: 16 }}>
+          <View style={{ alignItems: 'flex-start', flex: 1, marginLeft: 16 }}>
             <Text style={styles.levelText}>LVL {challenge.current_level}</Text>
             <Text style={styles.dayText}>Day {challenge.current_day}/180</Text>
           </View>
 
-          {/* ⚔️ RIGHT SECTION: CYBER-GLOW GRADIENT USERNAME BADGE */}
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={styles.logoutText}>EXIT 🚪</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMM dd')}</Text>
+
+        {/* USERNAME BADGE RIGHT TO 100% COMPLETE */}
+        <View style={styles.completionAndNameRow}>
+          <Text style={styles.completionText}>{today.completion_percentage.toFixed(0)}% Complete</Text>
+
           <LinearGradient
             colors={['rgba(0, 212, 255, 0.25)', 'rgba(0, 255, 100, 0.25)']}
             start={{ x: 0, y: 0 }}
@@ -322,17 +298,10 @@ export default function Dashboard() {
               ⚔️ {userName.toUpperCase()}
             </Text>
           </LinearGradient>
-
-          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutText}>EXIT 🚪</Text>
-          </TouchableOpacity>
         </View>
-
-        <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMM dd')}</Text>
-        <Text style={styles.completionText}>{today.completion_percentage.toFixed(0)}% Complete</Text>
       </View>
 
-      {/* TASKS SCROLL LIST */}
+      {/* TASKS LIST */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -342,17 +311,7 @@ export default function Dashboard() {
           today.tasks.map((task, index) => {
             const isTemp = task.task_type === 'temporary';
             return (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.taskCard,
-                  isTemp && styles.temporaryTaskCard,
-                  task.completed && styles.taskCardCompleted,
-                  animatingTask === index && styles.taskCardAnimating,
-                ]}
-                onPress={() => handleTaskPress(index, task.completed)}
-                activeOpacity={0.7}
-              >
+              <View key={index} style={[styles.taskCard, task.completed ? styles.taskCardCompleted : null]}>
                 <View style={styles.taskHeader}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={styles.taskTime}>{task.time}</Text>
@@ -360,28 +319,28 @@ export default function Dashboard() {
                   </View>
                   <View style={styles.taskActions}>
                     <TouchableOpacity
-                      style={[
-                        styles.actionButton,
-                        task.completed ? styles.killButton : styles.defeatButton,
-                      ]}
+                      style={[styles.actionButton, task.completed ? styles.killButton : styles.defeatButton]}
                       onPress={() => handleTaskPress(index, task.completed)}
                     >
                       <Text style={styles.actionButtonText}>
                         {task.completed ? '⚔️ KILL' : '💀 DEFEAT'}
                       </Text>
                     </TouchableOpacity>
+
+                    <TouchableOpacity 
+                      style={styles.deleteButton} 
+                      onPress={() => handleDeleteTask(index)}
+                    >
+                      <Text style={styles.deleteButtonText}>🗑️</Text>
+                    </TouchableOpacity>
                   </View>
                 </View>
-                <Text style={[styles.taskTitle, task.completed && styles.taskTitleCompleted]}>
+
+                <Text style={[styles.taskTitle, task.completed ? styles.taskTitleCompleted : null]}>
                   {task.task}
                 </Text>
                 <Text style={styles.taskDuration}>{task.duration} mins</Text>
-                {isTemp && (
-                  <Text style={styles.dateRangeText}>
-                    Active: {task.start_date} to {task.end_date}
-                  </Text>
-                )}
-              </TouchableOpacity>
+              </View>
             );
           })
         ) : (
@@ -392,11 +351,10 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
-      {/* FLOATING ACTION PLUS BUTTON */}
+      {/* FLOATING ACTION BUTTON */}
       <TouchableOpacity 
         style={styles.floatingPlusButton} 
         onPress={() => setIsModalVisible(true)}
-        activeOpacity={0.8}
       >
         <Text style={styles.floatingPlusText}>+</Text>
       </TouchableOpacity>
@@ -407,58 +365,40 @@ export default function Dashboard() {
 
       {/* ADD TASK MODAL */}
       <Modal visible={isModalVisible} animationType="slide" transparent={true}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalOverlay}
-        >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
               <Text style={styles.modalTitle}>⚔️ ADD CUSTOM QUEST</Text>
 
               <Text style={styles.label}>Task Title</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g., Code Review or Gym Workout"
-                placeholderTextColor="#666"
-                value={taskTitle}
-                onChangeText={setTaskTitle}
-              />
+              <TextInput style={styles.input} placeholder="e.g., Code Review" placeholderTextColor="#666" value={taskTitle} onChangeText={setTaskTitle} />
 
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Time</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={taskTime}
-                    onChangeText={setTaskTime}
-                  />
+                  <TextInput style={styles.input} value={taskTime} onChangeText={setTaskTime} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.label}>Duration (mins)</Text>
-                  <TextInput
-                    style={styles.input}
-                    keyboardType="numeric"
-                    value={taskDuration}
-                    onChangeText={setTaskDuration}
-                  />
+                  <TextInput style={styles.input} keyboardType="numeric" value={taskDuration} onChangeText={setTaskDuration} />
                 </View>
               </View>
 
               <Text style={styles.label}>Task Timeline Type</Text>
               <View style={styles.typeSelectorContainer}>
                 <TouchableOpacity
-                  style={[styles.typeButton, taskType === 'permanent' && styles.typeButtonActive]}
+                  style={[styles.typeButton, taskType === 'permanent' ? styles.typeButtonActive : null]}
                   onPress={() => setTaskType('permanent')}
                 >
-                  <Text style={[styles.typeButtonText, taskType === 'permanent' && styles.typeTextActive]}>
+                  <Text style={[styles.typeButtonText, taskType === 'permanent' ? styles.typeTextActive : null]}>
                     🏛️ Permanent
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.typeButton, taskType === 'temporary' && styles.typeButtonActive]}
+                  style={[styles.typeButton, taskType === 'temporary' ? styles.typeButtonActive : null]}
                   onPress={() => setTaskType('temporary')}
                 >
-                  <Text style={[styles.typeButtonText, taskType === 'temporary' && styles.typeTextActive]}>
+                  <Text style={[styles.typeButtonText, taskType === 'temporary' ? styles.typeTextActive : null]}>
                     ⏳ Temporary
                   </Text>
                 </TouchableOpacity>
@@ -467,38 +407,23 @@ export default function Dashboard() {
               {taskType === 'temporary' && (
                 <View style={{ marginTop: 10 }}>
                   <Text style={styles.label}>Start Date</Text>
-                  <TouchableOpacity 
-                    style={styles.datePickerTrigger} 
-                    onPress={() => openCalendarFor('start')}
-                  >
+                  <TouchableOpacity style={styles.datePickerTrigger} onPress={() => openCalendarFor('start')}>
                     <Text style={styles.datePickerTriggerText}>📅 {format(startDate, 'yyyy-MM-dd')}</Text>
                   </TouchableOpacity>
 
                   <Text style={styles.label}>End Date</Text>
-                  <TouchableOpacity 
-                    style={styles.datePickerTrigger} 
-                    onPress={() => openCalendarFor('end')}
-                  >
+                  <TouchableOpacity style={styles.datePickerTrigger} onPress={() => openCalendarFor('end')}>
                     <Text style={styles.datePickerTriggerText}>📅 {format(endDate, 'yyyy-MM-dd')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
 
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={styles.cancelButton} 
-                  onPress={() => setIsModalVisible(false)}
-                >
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setIsModalVisible(false)}>
                   <Text style={styles.cancelButtonText}>CANCEL</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.addSubmitButton} 
-                  onPress={handleAddNewTask}
-                  disabled={addingTask}
-                >
-                  <Text style={styles.addSubmitText}>
-                    {addingTask ? 'ADDING...' : 'ADD QUEST'}
-                  </Text>
+                <TouchableOpacity style={styles.addSubmitButton} onPress={handleAddNewTask} disabled={addingTask}>
+                  <Text style={styles.addSubmitText}>{addingTask ? 'ADDING...' : 'ADD QUEST'}</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -539,16 +464,10 @@ export default function Dashboard() {
             </Text>
 
             <View style={styles.calendarActions}>
-              <TouchableOpacity 
-                style={styles.cancelButton} 
-                onPress={() => setCalendarVisible(false)}
-              >
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setCalendarVisible(false)}>
                 <Text style={styles.cancelButtonText}>CLOSE</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.addSubmitButton} 
-                onPress={confirmDateSelection}
-              >
+              <TouchableOpacity style={styles.addSubmitButton} onPress={confirmDateSelection}>
                 <Text style={styles.addSubmitText}>SELECT DATE</Text>
               </TouchableOpacity>
             </View>
@@ -567,56 +486,37 @@ const styles = StyleSheet.create({
   rankText: { fontSize: 20, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
   levelText: { fontSize: 18, fontWeight: '900', color: '#00d4ff' },
   dayText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
-  cyberNameCard: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#00d4ff',
-    shadowColor: '#00d4ff',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 6
-  },
-  cyberNameText: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#00ff64',
-    letterSpacing: 1,
-    textShadowColor: '#00d4ff',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 4
-  },
+  completionAndNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  completionText: { fontSize: 20, fontWeight: '800', color: '#00d4ff' },
+  cyberNameCard: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, borderWidth: 1.5, borderColor: '#00d4ff', shadowColor: '#00d4ff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 6 },
+  cyberNameText: { fontSize: 13, fontWeight: '900', color: '#00ff64', letterSpacing: 1 },
   logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
   logoutText: { color: '#ff6b6b', fontSize: 11, fontWeight: '900' },
-  dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 6 },
-  completionText: { fontSize: 20, fontWeight: '800', color: '#00d4ff' },
+  dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 2 },
   tasksList: { flex: 1 },
   tasksContent: { padding: 16, paddingBottom: 80 },
-  taskCard: { backgroundColor: 'rgba(0, 212, 255, 0.05)', borderWidth: 2, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 12, padding: 16, marginBottom: 12, overflow: 'hidden' },
-  temporaryTaskCard: { borderColor: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.05)' },
-  tempBadge: { fontSize: 10, fontWeight: '900', color: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.2)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  taskCard: { backgroundColor: 'rgba(0, 212, 255, 0.05)', borderWidth: 2, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 12, padding: 16, marginBottom: 12 },
   taskCardCompleted: { backgroundColor: 'rgba(0, 255, 100, 0.05)', borderColor: 'rgba(0, 255, 100, 0.5)' },
-  taskCardAnimating: { borderColor: '#00d4ff', shadowColor: '#00d4ff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8, elevation: 8 },
   taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   taskTime: { fontSize: 15, fontWeight: '700', color: '#00d4ff' },
-  taskActions: { flexDirection: 'row', gap: 8 },
+  tempBadge: { fontSize: 10, fontWeight: '900', color: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.2)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  taskActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   actionButton: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6 },
   killButton: { backgroundColor: '#00ff64' },
   defeatButton: { backgroundColor: '#ff6b6b' },
   actionButtonText: { fontSize: 12, fontWeight: '900', color: '#000000' },
+  deleteButton: { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(255, 107, 107, 0.2)', borderRadius: 6 },
+  deleteButtonText: { fontSize: 14 },
   taskTitle: { fontSize: 16, fontWeight: '600', color: '#ffffff', marginBottom: 4 },
   taskTitleCompleted: { textDecorationLine: 'line-through', color: '#8b9dc3' },
   taskDuration: { fontSize: 12, color: '#8b9dc3' },
-  dateRangeText: { fontSize: 11, color: '#ffaa00', marginTop: 4 },
   emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { color: '#00d4ff', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  emptyTitle: { color: '#00d4ff', fontSize: 18, fontWeight: '900' },
   emptySubText: { color: '#8b9dc3', fontSize: 13, textAlign: 'center', marginTop: 8 },
-  floatingPlusButton: { position: 'absolute', right: 24, bottom: 90, width: 60, height: 60, borderRadius: 30, backgroundColor: '#00d4ff', alignItems: 'center', justifyContent: 'center', elevation: 10, shadowColor: '#00d4ff', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.8, shadowRadius: 10, zIndex: 999 },
+  floatingPlusButton: { position: 'absolute', right: 24, bottom: 90, width: 60, height: 60, borderRadius: 30, backgroundColor: '#00d4ff', alignItems: 'center', justifyContent: 'center', zIndex: 999 },
   floatingPlusText: { fontSize: 36, fontWeight: '900', color: '#0a0e27', marginTop: -4 },
-  statsButton: { backgroundColor: '#00d4ff', padding: 16, margin: 16, borderRadius: 12, shadowColor: '#00d4ff', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 8 },
-  statsButtonText: { fontSize: 16, fontWeight: '900', color: '#0a0e27', textAlign: 'center', letterSpacing: 1 },
+  statsButton: { backgroundColor: '#00d4ff', padding: 16, margin: 16, borderRadius: 12 },
+  statsButtonText: { fontSize: 16, fontWeight: '900', color: '#0a0e27', textAlign: 'center' },
   loadingText: { fontSize: 18, color: '#ffffff', textAlign: 'center', marginTop: 100 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
   modalContainer: { backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 20, maxHeight: '85%' },
@@ -644,10 +544,10 @@ const styles = StyleSheet.create({
   calendarRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 6 },
   calendarDayHeaderCell: { width: 36, alignItems: 'center' },
   calendarDayHeaderText: { color: '#8b9dc3', fontWeight: '800', fontSize: 12 },
-  calendarDayCell: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', marginVertical: 2 },
+  calendarDayCell: { width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center' },
   calendarDaySelected: { backgroundColor: '#00d4ff' },
   calendarDayDisabled: { opacity: 0.2 },
-  calendarDayText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
+  calendarDayText: { color: '#ffffff', fontWeight: '700' },
   calendarDayTextSelected: { color: '#0a0e27', fontWeight: '900' },
   calendarDayTextDisabled: { color: '#8b9dc3' },
   selectedDatePreview: { color: '#00d4ff', textAlign: 'center', fontWeight: '800', marginTop: 12, fontSize: 13 },

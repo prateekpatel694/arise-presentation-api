@@ -45,7 +45,7 @@ export default function AuthScreen() {
 
   const handleAuthSubmit = async () => {
     if (!isLogin && !username.trim()) {
-      Alert.alert('Required', 'Please enter a unique Hunter / Shadow Username!');
+      Alert.alert('Required', 'Please enter a unique Hunter Username!');
       return;
     }
     if (!email.trim() || !password.trim()) {
@@ -95,7 +95,7 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       const res = await axios.post("https://arise-presentation-api.onrender.com/api/auth/forgot-password", {
-        email: resetEmail.trim()
+        email: resetEmail.trim().toLowerCase()
       });
       if (res.data.success) {
         Alert.alert('OTP Sent 📩', res.data.message);
@@ -116,7 +116,7 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       const res = await axios.post("https://arise-presentation-api.onrender.com/api/auth/reset-password", {
-        email: resetEmail.trim(),
+        email: resetEmail.trim().toLowerCase(),
         otp: otpCode.trim(),
         new_password: newPassword.trim()
       });
