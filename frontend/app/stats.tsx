@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
 import Svg, { Path, Defs, LinearGradient, Stop, Circle, Line } from 'react-native-svg';
 
@@ -57,27 +58,29 @@ export default function StatsScreen() {
 
   const loadStats = async () => {
     try {
-      const response = await axios.get("https://arise-presentation-api.onrender.com/api/challenge/current?user_id=default_user");
+      // DYNAMIC USER ISOLATION FIX
+      const storedUserId = await AsyncStorage.getItem('user_id');
+      const activeUserId = storedUserId || 'default_user';
+
+      const response = await axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}`);
       
       if (response && response.data) {
         if (response.data.challenge) {
           setChallenge(response.data.challenge);
         }
         
-        const currentDay = response.data.challenge?.current_day || 2;
+        const currentDay = response.data.challenge?.current_day || 1;
         let historyList: DayHistory[] = [];
 
-        // Check if full history array exists
         if (Array.isArray(response.data.history) && response.data.history.length > 0) {
           historyList = response.data.history;
         } else {
-          // Construct complete history including Day 1, Day 2, etc.
           for (let d = 1; d <= currentDay; d++) {
             historyList.push({
               day_number: d,
               date: new Date(Date.now() - (currentDay - d) * 86400000).toISOString(),
-              completion_percentage: d === currentDay ? (response.data.today?.completion_percentage || 100) : 100,
-              rank: d === 1 ? 'E' : (response.data.challenge?.current_rank || '1%'),
+              completion_percentage: d === currentDay ? (response.data.today?.completion_percentage || 0) : 0,
+              rank: response.data.challenge?.current_rank || 'F',
               tasks: response.data.today?.tasks || []
             });
           }
@@ -86,17 +89,7 @@ export default function StatsScreen() {
         setHistory(historyList);
       }
     } catch (e) {
-      // Safe fallback data including Day 1 & Day 2
-      setChallenge({
-        current_day: 2,
-        current_rank: '1%',
-        current_level: 5,
-        stats: { strength: 40, vitality: 34, agility: 30, recovery: 26 }
-      });
-      setHistory([
-        { day_number: 1, date: new Date(Date.now() - 86400000).toISOString(), completion_percentage: 100, rank: 'E', tasks: [] },
-        { day_number: 2, date: new Date().toISOString(), completion_percentage: 100, rank: '1%', tasks: [] }
-      ]);
+      console.error('Error fetching user stats:', e);
     } finally {
       setLoading(false);
     }
@@ -104,11 +97,10 @@ export default function StatsScreen() {
 
   const getRankYPosition = (rank: string, height: number, padding: number) => {
     const index = RANKS.indexOf(rank);
-    const validIndex = index !== -1 ? index : 6; // Default E-Rank
+    const validIndex = index !== -1 ? index : 6;
     return padding + (validIndex / (RANKS.length - 1)) * (height - padding * 2);
   };
 
-  // Render Rank vs Days Cyberpunk Curved Graph
   const renderRankGraph = () => {
     const svgWidth = width - 90;
     const svgHeight = 200;
@@ -143,7 +135,6 @@ export default function StatsScreen() {
 
     return (
       <View style={styles.graphContainer}>
-        {/* Y-AXIS RANKS LABELS */}
         <View style={styles.yAxisContainer}>
           {RANKS.map((r, i) => (
             <Text key={i} style={[styles.yAxisText, { color: RANK_COLORS[r] }]}>
@@ -152,7 +143,6 @@ export default function StatsScreen() {
           ))}
         </View>
 
-        {/* GRAPH SVG CANVAS */}
         <View style={{ flex: 1 }}>
           <Svg width={svgWidth} height={svgHeight}>
             <Defs>
@@ -162,7 +152,6 @@ export default function StatsScreen() {
               </LinearGradient>
             </Defs>
 
-            {/* Grid Lines corresponding to ranks */}
             {RANKS.map((_, idx) => {
               const yPos = padding + (idx / (RANKS.length - 1)) * (svgHeight - padding * 2);
               return (
@@ -179,11 +168,9 @@ export default function StatsScreen() {
               );
             })}
 
-            {/* Curved Gradient & Line */}
             <Path d={dArea} fill="url(#cyberGlow)" />
             <Path d={dPath} fill="none" stroke="#00ff64" strokeWidth="3.5" />
 
-            {/* Points */}
             {points.map((pt, i) => (
               <React.Fragment key={i}>
                 <Circle cx={pt.x} cy={pt.y} r="6" fill="#0a0e27" stroke="#00ff64" strokeWidth="2.5" />
@@ -192,7 +179,6 @@ export default function StatsScreen() {
             ))}
           </Svg>
 
-          {/* X-AXIS DAYS LABELS */}
           <View style={styles.xAxisRow}>
             {history.map((item, idx) => (
               <Text key={idx} style={styles.xAxisText}>{item.day_number}</Text>
@@ -225,7 +211,6 @@ export default function StatsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
-        {/* OVERVIEW PLAYER CARD */}
         {challenge && (
           <View style={styles.overviewCard}>
             <View style={styles.rankContainer}>
@@ -242,7 +227,6 @@ export default function StatsScreen() {
           </View>
         )}
 
-        {/* SHADOW ATTRIBUTES */}
         {challenge && challenge.stats && (
           <>
             <Text style={styles.sectionTitle}>⚔️ SHADOW ATTRIBUTES</Text>
@@ -267,18 +251,16 @@ export default function StatsScreen() {
           </>
         )}
 
-        {/* BATTLE GRAPH (Rank vs Days) */}
         <Text style={styles.sectionTitle}>📈 BATTLE GRAPH (Rank vs Days)</Text>
         <View style={styles.cyberCard}>
           {renderRankGraph()}
         </View>
 
-        {/* RECENT HISTORY (Includes Day 1, Day 2...) */}
         <Text style={styles.sectionTitle}>📜 RECENT HISTORY</Text>
         <View style={styles.historyListContainer}>
           {history && history.length > 0 ? (
             history.map((dayItem, index) => {
-              const compPercent = dayItem.completion_percentage || 100;
+              const compPercent = dayItem.completion_percentage || 0;
               return (
                 <View key={index} style={styles.historyCard}>
                   <View style={styles.historyHeader}>

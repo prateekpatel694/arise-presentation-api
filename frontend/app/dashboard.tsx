@@ -46,6 +46,7 @@ interface Challenge {
 export default function Dashboard() {
   const router = useRouter();
   const [userId, setUserId] = useState<string>('default_user');
+  const [userName, setUserName] = useState<string>('MONARCH');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [today, setToday] = useState<DailyProgress | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,7 +76,13 @@ export default function Dashboard() {
   const initializeUserAndLoadData = async () => {
     try {
       const storedUserId = await AsyncStorage.getItem('user_id');
+      const storedUserName = await AsyncStorage.getItem('username');
+      
       const activeId = storedUserId || 'default_user';
+      if (storedUserName) {
+        setUserName(storedUserName);
+      }
+      
       setUserId(activeId);
       await loadData(activeId);
     } catch (error) {
@@ -88,18 +95,24 @@ export default function Dashboard() {
     try {
       const response = await axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}`);
       
-      if (response.data && response.data.challenge && response.data.today) {
-        setChallenge(response.data.challenge);
-        
-        const sortedTasks = [...response.data.today.tasks].sort((a, b) => {
-          const typeA = a.task_type || 'permanent';
-          const typeB = b.task_type || 'permanent';
-          if (typeA === 'permanent' && typeB === 'temporary') return -1;
-          if (typeA === 'temporary' && typeB === 'permanent') return 1;
-          return 0;
-        });
+      if (response.data) {
+        if (response.data.username) {
+          setUserName(response.data.username);
+        }
 
-        setToday({ ...response.data.today, tasks: sortedTasks });
+        if (response.data.challenge && response.data.today) {
+          setChallenge(response.data.challenge);
+          
+          const sortedTasks = [...response.data.today.tasks].sort((a, b) => {
+            const typeA = a.task_type || 'permanent';
+            const typeB = b.task_type || 'permanent';
+            if (typeA === 'permanent' && typeB === 'temporary') return -1;
+            if (typeA === 'temporary' && typeB === 'permanent') return 1;
+            return 0;
+          });
+
+          setToday({ ...response.data.today, tasks: sortedTasks });
+        }
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -283,7 +296,7 @@ export default function Dashboard() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION WITH LOGOUT BUTTON */}
+      {/* HEADER SECTION WITH USERNAME BADGE & LOGOUT BUTTON */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -291,7 +304,12 @@ export default function Dashboard() {
               {challenge.current_rank}
             </Text>
           </View>
-          <View style={{ alignItems: 'flex-start' }}>
+          
+          <View style={{ alignItems: 'flex-start', flex: 1, marginLeft: 16 }}>
+            {/* ⚔️ UNIQUE HUNTER USERNAME DISPLAY BADGE */}
+            <Text style={styles.userNameBadge}>
+              ⚔️ {userName.toUpperCase()}
+            </Text>
             <Text style={styles.levelText}>LVL {challenge.current_level}</Text>
             <Text style={styles.dayText}>Day {challenge.current_day}/180</Text>
           </View>
@@ -536,10 +554,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0e27' },
   header: { padding: 20, paddingTop: 48, backgroundColor: 'rgba(0, 212, 255, 0.05)', borderBottomWidth: 2, borderBottomColor: '#00d4ff' },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  rankBadge: { width: 70, height: 70, borderRadius: 14, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', transform: [{ rotate: '45deg' }] },
-  rankText: { fontSize: 24, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
-  levelText: { fontSize: 22, fontWeight: '900', color: '#00d4ff' },
-  dayText: { fontSize: 16, fontWeight: '700', color: '#ffffff' },
+  rankBadge: { width: 68, height: 68, borderRadius: 14, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', transform: [{ rotate: '45deg' }] },
+  rankText: { fontSize: 22, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
+  userNameBadge: { fontSize: 16, fontWeight: '900', color: '#ffd700', letterSpacing: 1, marginBottom: 2 },
+  levelText: { fontSize: 20, fontWeight: '900', color: '#00d4ff' },
+  dayText: { fontSize: 14, fontWeight: '700', color: '#ffffff' },
   logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   logoutText: { color: '#ff6b6b', fontSize: 12, fontWeight: '900' },
   dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 6 },

@@ -7,16 +7,17 @@ import motor.motor_asyncio
 import bcrypt
 import jwt
 import os
+import random
 
 app = FastAPI()
 
-# --- DATABASE CONFIGURATION (PURANE DATABASE SE MATCHED) ---
+# --- DATABASE CONFIGURATION (SHADOW_PRESENTATION EXACT MATCH) ---
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://monar:king123@cluster0.vytusx9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
 
-# 🎯 EXACT DATABASE NAME REVERTED TO SHADOW_PRESENTATION
 db = client.shadow_presentation
 users_collection = db.users
+otps_collection = db.password_reset_otps
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
@@ -49,9 +50,22 @@ DEFAULT_TASKS = [
 ]
 
 # --- PYDANTIC SCHEMAS ---
-class AuthRequest(BaseModel):
+class RegisterRequest(BaseModel):
+    username: str
     email: str
     password: str
+
+class LoginRequest(BaseModel):
+    email_or_username: str
+    password: str
+
+class ForgotPasswordReq(BaseModel):
+    email: str
+
+class VerifyResetReq(BaseModel):
+    email: str
+    otp: str
+    new_password: str
 
 class StartRequest(BaseModel):
     user_id: str = "default_user"
@@ -126,58 +140,121 @@ async def health():
     except Exception as e:
         return {"status": "Online", "database": f"Error: {str(e)} ❌"}
 
-# --- AUTHENTICATION ROUTES ---
+# --- AUTHENTICATION ROUTES WITH UNIQUE USERNAME ---
 @app.post("/api/auth/register")
 @app.post("/auth/register")
-async def register(user_data: AuthRequest):
+async def register(user_data: RegisterRequest):
     email_clean = user_data.email.strip().lower()
-    existing_user = await users_collection.find_one({"email": email_clean})
-    if existing_user:
+    username_clean = user_data.username.strip()
+
+    if len(username_clean) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters!")
+
+    # 🛑 UNIQUE USERNAME CHECK
+    existing_username = await users_collection.find_one({"username_lower": username_clean.lower()})
+    if existing_username:
+        raise HTTPException(status_code=400, detail="This Shadow Username is already taken! Try another.")
+
+    existing_email = await users_collection.find_one({"email": email_clean})
+    if existing_email:
         raise HTTPException(status_code=400, detail="User already exists with this email!")
 
     hashed_pwd = hash_password(user_data.password.strip())
     ist_now = get_ist_time()
     
     new_user = {
+        "username": username_clean,
+        "username_lower": username_clean.lower(),
         "email": email_clean,
         "password": hashed_pwd,
         "user_id": email_clean,
         "start_date": ist_now.isoformat(),
         "active": True,
         "history": {},
-        "tasks": [] # Dynamic Tasks for New Accounts
+        "tasks": []
     }
 
     result = await users_collection.insert_one(new_user)
     user_id = str(result.inserted_id)
-    token = create_access_token({"userId": user_id, "email": email_clean})
+    token = create_access_token({"userId": user_id, "email": email_clean, "username": username_clean})
 
     return {
         "success": True,
         "token": token,
         "userId": email_clean,
         "email": email_clean,
-        "message": "Shadow Monarch Awakened!"
+        "username": username_clean,
+        "message": f"Monarch {username_clean} Awakened!"
     }
 
 @app.post("/api/auth/login")
 @app.post("/auth/login")
-async def login(user_data: AuthRequest):
-    email_clean = user_data.email.strip().lower()
-    user = await users_collection.find_one({"email": email_clean})
+async def login(user_data: LoginRequest):
+    input_clean = user_data.email_or_username.strip().lower()
+    
+    # Search by email OR username
+    user = await users_collection.find_one({
+        "$or": [
+            {"email": input_clean},
+            {"username_lower": input_clean}
+        ]
+    })
     
     if not user or not verify_password(user_data.password.strip(), user["password"]):
-        raise HTTPException(status_code=400, detail="Invalid Email or Password!")
+        raise HTTPException(status_code=400, detail="Invalid Email/Username or Password!")
 
-    token = create_access_token({"userId": str(user["_id"]), "email": user["email"]})
+    username = user.get("username", "Monarch")
+    token = create_access_token({"userId": str(user["_id"]), "email": user["email"], "username": username})
 
     return {
         "success": True,
         "token": token,
-        "userId": user.get("user_id", email_clean),
+        "userId": user.get("user_id", user["email"]),
         "email": user["email"],
-        "message": "Welcome Back, Shadow Monarch!"
+        "username": username,
+        "message": f"Welcome Back, Monarch {username}!"
     }
+
+# --- FORGOT PASSWORD & OTP SYSTEM ---
+@app.post("/api/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordReq):
+    email_clean = req.email.strip().lower()
+    user = await users_collection.find_one({"email": email_clean})
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="No account registered with this email!")
+
+    otp_code = str(random.randint(100000, 999999))
+    expire_time = get_ist_time() + timedelta(minutes=10)
+
+    await otps_collection.update_one(
+        {"email": email_clean},
+        {"$set": {"otp": otp_code, "expires_at": expire_time}},
+        upsert=True
+    )
+
+    return {
+        "success": True,
+        "message": f"OTP generated and sent to {email_clean}!",
+        "debug_otp": otp_code
+    }
+
+@app.post("/api/auth/reset-password")
+async def reset_password(req: VerifyResetReq):
+    email_clean = req.email.strip().lower()
+    record = await otps_collection.find_one({"email": email_clean})
+
+    if not record or record.get("otp") != req.otp.strip():
+        raise HTTPException(status_code=400, detail="Invalid OTP Code!")
+
+    if get_ist_time() > record.get("expires_at"):
+        raise HTTPException(status_code=400, detail="OTP Code has expired! Please request a new one.")
+
+    hashed_pwd = hash_password(req.new_password.strip())
+    await users_collection.update_one({"email": email_clean}, {"$set": {"password": hashed_pwd}})
+    await otps_collection.delete_one({"email": email_clean})
+
+    return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
 # --- CHALLENGE & TASK PROGRESSION ENDPOINTS ---
 @app.get("/api/challenge/current")
@@ -249,6 +326,7 @@ async def get_current_status(user_id: str = "default_user"):
         
         return {
             "active": True,
+            "username": user.get("username", "MONARCH"),
             "challenge": {
                 "current_day": current_day,
                 "current_rank": current_rank_daily, 
