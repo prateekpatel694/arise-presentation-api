@@ -23,7 +23,7 @@ otps_collection = db.password_reset_otps
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
-# SMTP Credentials for Fast Gmail OTP
+# SMTP Credentials
 SMTP_EMAIL = os.getenv("SMTP_EMAIL", "prateekpatel694@gmail.com")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 
@@ -104,11 +104,11 @@ def create_access_token(data: dict):
 
 def send_email_otp_fast(to_email: str, otp_code: str):
     if not SMTP_EMAIL or not SMTP_PASSWORD:
-        print("SMTP Credentials not set. Debug OTP is:", otp_code)
+        print(f"SMTP credentials missing. Local test OTP: {otp_code}")
         return
     try:
-        subject = "⚔️ ARISE PROTOCOL - Password Reset OTP Code"
-        body = f"Monarch!\n\nYour 6-Digit Password Reset OTP Verification Code is: {otp_code}\n\nThis code is valid for 10 minutes. Do not share it with anyone."
+        subject = "⚔️ ARISE PROTOCOL - OTP Verification Code"
+        body = f"Monarch!\n\nYour 6-Digit Password Reset OTP Verification Code is: {otp_code}\n\nValid for 10 minutes."
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = SMTP_EMAIL
@@ -117,9 +117,9 @@ def send_email_otp_fast(to_email: str, otp_code: str):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
             server.login(SMTP_EMAIL, SMTP_PASSWORD)
             server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
-        print(f"OTP Email sent successfully to {to_email}")
+        print(f"OTP sent successfully to {to_email}")
     except Exception as e:
-        print(f"SMTP Dispatch Error: {e}")
+        print(f"Email Dispatch Error: {e}")
 
 # --- HEALTH CHECK ---
 @app.get("/")
@@ -142,7 +142,7 @@ async def register(user_data: RegisterRequest):
 
     existing_username = await users_collection.find_one({"username_lower": username_clean.lower()})
     if existing_username:
-        raise HTTPException(status_code=400, detail="This Username is already taken! Try another.")
+        raise HTTPException(status_code=400, detail="This Username is already taken!")
 
     existing_email = await users_collection.find_one({"email": email_clean})
     if existing_email:
@@ -221,7 +221,7 @@ async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTa
 
     return {
         "success": True,
-        "message": f"OTP Verification Code sent to {email_clean}! Check your email inbox or spam.",
+        "message": f"OTP Verification Code generated for {email_clean}!",
         "debug_otp": otp_code
     }
 
@@ -234,13 +234,13 @@ async def reset_password(req: VerifyResetReq):
         raise HTTPException(status_code=400, detail="Invalid OTP Code!")
 
     if get_ist_time() > record.get("expires_at"):
-        raise HTTPException(status_code=400, detail="OTP Code Expired! Request a new one.")
+        raise HTTPException(status_code=400, detail="OTP Code Expired!")
 
     hashed_pwd = hash_password(req.new_password.strip())
     await users_collection.update_one({"email": email_clean}, {"$set": {"password": hashed_pwd}})
     await otps_collection.delete_one({"email": email_clean})
 
-    return {"success": True, "message": "Password reset successful! You can now login."}
+    return {"success": True, "message": "Password reset successful!"}
 
 # --- QUEST MANAGEMENT ---
 @app.get("/api/challenge/current")
@@ -316,7 +316,6 @@ async def get_current_status(user_id: str = "default_user"):
             }
         }
     except Exception as e:
-        print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
         return {"active": False, "error": str(e)}
 
 @app.post("/api/challenge/start")

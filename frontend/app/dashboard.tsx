@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, 
-  Alert, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform 
+  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform 
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
@@ -50,6 +50,8 @@ export default function Dashboard() {
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [today, setToday] = useState<DailyProgress | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [animatingTask, setAnimatingTask] = useState<number | null>(null);
+  const [slashAnim] = useState(new Animated.Value(0));
 
   // Add Task Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -119,7 +121,23 @@ export default function Dashboard() {
     ]);
   };
 
+  // TASK KILL WITH ANIMATION SEQUENCE
   const handleTaskPress = async (taskIndex: number, currentStatus: boolean) => {
+    setAnimatingTask(taskIndex);
+
+    Animated.sequence([
+      Animated.timing(slashAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slashAnim, {
+        toValue: 0,
+        duration: 0,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setAnimatingTask(null));
+
     try {
       await axios.post(`https://arise-presentation-api.onrender.com/api/challenge/task`, {
         user_id: userId,
@@ -261,10 +279,12 @@ export default function Dashboard() {
     );
   }
 
+  const isHundredPercent = today.completion_percentage >= 100;
+
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION */}
-      <View style={styles.header}>
+      {/* HEADER SECTION WITH 100% GLOW AMBIANCE */}
+      <View style={[styles.header, isHundredPercent && styles.headerFullGlow]}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
             <Text style={[styles.rankText, { color: getRankColor(challenge.current_rank) }]}>
@@ -284,9 +304,10 @@ export default function Dashboard() {
 
         <Text style={styles.dateText}>{format(new Date(), 'EEEE, MMM dd')}</Text>
 
-        {/* CLEAN USERNAME BADGE NO CENTER LINE */}
         <View style={styles.completionAndNameRow}>
-          <Text style={styles.completionText}>{today.completion_percentage.toFixed(0)}% Complete</Text>
+          <Text style={[styles.completionText, isHundredPercent && styles.hundredPercentText]}>
+            {today.completion_percentage.toFixed(0)}% Complete {isHundredPercent ? '👑' : ''}
+          </Text>
 
           <LinearGradient
             colors={['#00d4ff', '#00ff64']}
@@ -301,7 +322,7 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* TASKS LIST */}
+      {/* TASKS LIST WITH SLASH ANIMATION */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -310,8 +331,16 @@ export default function Dashboard() {
         {today.tasks && today.tasks.length > 0 ? (
           today.tasks.map((task, index) => {
             const isTemp = task.task_type === 'temporary';
+            const isAnimating = animatingTask === index;
             return (
-              <View key={index} style={[styles.taskCard, task.completed ? styles.taskCardCompleted : null]}>
+              <Animated.View 
+                key={index} 
+                style={[
+                  styles.taskCard, 
+                  task.completed ? styles.taskCardCompleted : null,
+                  isAnimating ? styles.taskCardSlashAnim : null
+                ]}
+              >
                 <View style={styles.taskHeader}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={styles.taskTime}>{task.time}</Text>
@@ -340,7 +369,7 @@ export default function Dashboard() {
                   {task.task}
                 </Text>
                 <Text style={styles.taskDuration}>{task.duration} mins</Text>
-              </View>
+              </Animated.View>
             );
           })
         ) : (
@@ -351,7 +380,6 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
-      {/* FLOATING ACTION BUTTON */}
       <TouchableOpacity 
         style={styles.floatingPlusButton} 
         onPress={() => setIsModalVisible(true)}
@@ -481,6 +509,7 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0e27' },
   header: { padding: 20, paddingTop: 48, backgroundColor: 'rgba(0, 212, 255, 0.05)', borderBottomWidth: 2, borderBottomColor: '#00d4ff' },
+  headerFullGlow: { borderBottomColor: '#00ff64', backgroundColor: 'rgba(0, 255, 100, 0.08)' },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   rankBadge: { width: 64, height: 64, borderRadius: 14, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)', transform: [{ rotate: '45deg' }] },
   rankText: { fontSize: 20, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
@@ -488,6 +517,7 @@ const styles = StyleSheet.create({
   dayText: { fontSize: 13, fontWeight: '700', color: '#ffffff' },
   completionAndNameRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
   completionText: { fontSize: 20, fontWeight: '800', color: '#00d4ff' },
+  hundredPercentText: { color: '#00ff64' },
   cleanCyberBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
   cleanCyberText: { fontSize: 13, fontWeight: '900', color: '#0a0e27', letterSpacing: 1 },
   logoutBtn: { backgroundColor: 'rgba(255, 107, 107, 0.15)', borderWidth: 1, borderColor: '#ff6b6b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
@@ -497,6 +527,7 @@ const styles = StyleSheet.create({
   tasksContent: { padding: 16, paddingBottom: 80 },
   taskCard: { backgroundColor: 'rgba(0, 212, 255, 0.05)', borderWidth: 2, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 12, padding: 16, marginBottom: 12 },
   taskCardCompleted: { backgroundColor: 'rgba(0, 255, 100, 0.05)', borderColor: 'rgba(0, 255, 100, 0.5)' },
+  taskCardSlashAnim: { borderColor: '#ffd700', transform: [{ scale: 1.02 }] },
   taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   taskTime: { fontSize: 15, fontWeight: '700', color: '#00d4ff' },
   tempBadge: { fontSize: 10, fontWeight: '900', color: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.2)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },

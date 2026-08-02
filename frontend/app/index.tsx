@@ -98,7 +98,11 @@ export default function AuthScreen() {
         email: resetEmail.trim().toLowerCase()
       });
       if (res.data.success) {
-        Alert.alert('OTP Sent 📩', res.data.message);
+        const displayMsg = res.data.debug_otp 
+          ? `${res.data.message}\n\n6-Digit OTP Code: ${res.data.debug_otp}`
+          : res.data.message;
+
+        Alert.alert('OTP Verification 📩', displayMsg);
         setResetStep(2);
       }
     } catch (err: any) {
@@ -122,14 +126,23 @@ export default function AuthScreen() {
       });
       if (res.data.success) {
         Alert.alert('Success 🎉', 'Password reset successfully! You can now login.');
-        setForgotModalVisible(false);
-        setResetStep(1);
+        handleCancelModal();
       }
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.detail || 'Failed to reset password');
     } finally {
       setLoading(false);
     }
+  };
+
+  // AUTOMATIC REFRESH & RESET ON CANCEL CLICK
+  const handleCancelModal = () => {
+    setForgotModalVisible(false);
+    setResetStep(1);
+    setResetEmail('');
+    setOtpCode('');
+    setNewPassword('');
+    setShowNewPassword(false);
   };
 
   if (checkingAuth) {
@@ -206,7 +219,7 @@ export default function AuthScreen() {
         </View>
       </ScrollView>
 
-      {/* FORGOT PASSWORD MODAL WITH EYE TOGGLE */}
+      {/* FORGOT PASSWORD MODAL */}
       <Modal visible={forgotModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -261,7 +274,8 @@ export default function AuthScreen() {
               </>
             )}
 
-            <TouchableOpacity style={{ marginTop: 16, alignItems: 'center' }} onPress={() => setForgotModalVisible(false)}>
+            {/* AUTO REFRESH CANCEL BUTTON */}
+            <TouchableOpacity style={{ marginTop: 16, alignItems: 'center' }} onPress={handleCancelModal}>
               <Text style={{ color: '#ff6b6b', fontWeight: '800' }}>CANCEL</Text>
             </TouchableOpacity>
           </View>
