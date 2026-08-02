@@ -1,17 +1,24 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timedelta
 import motor.motor_asyncio
+import bcrypt
+import jwt
+import os
 
 app = FastAPI()
 
-# --- DATABASE CONFIGURATION ---
-MONGO_URI = "mongodb+srv://monar:king123@cluster0.vytusx9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+# --- DATABASE CONFIGURATION (PURANE DATABASE SE MATCHED) ---
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://monar:king123@cluster0.vytusx9.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+
+# 🎯 EXACT DATABASE NAME REVERTED TO SHADOW_PRESENTATION
 db = client.shadow_presentation
 users_collection = db.users
+
+JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,25 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class StartRequest(BaseModel):
-    user_id: str = "default_user"
-
-class TaskUpdate(BaseModel):
-    user_id: str = "default_user"
-    day_number: int
-    task_index: int
-    completed: bool
-
-class CustomTaskReq(BaseModel):
-    user_id: str = "default_user"
-    task: str
-    time: str = "12:00 PM"
-    duration: int = 30
-    task_type: str = "permanent"
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-
-# Added task_type="permanent" to default protocol tasks
+# --- DEFAULT PROTOCOL TASKS ---
 DEFAULT_TASKS = [
     {"task": "Utho & 1 Glass Paani", "time": "07:30", "duration": 5, "task_type": "permanent"},
     {"task": "Quick Fresh & Meditation", "time": "07:35", "duration": 15, "task_type": "permanent"},
@@ -59,6 +48,30 @@ DEFAULT_TASKS = [
     {"task": "Brush & Sleep Prep", "time": "02:00", "duration": 10, "task_type": "permanent"}
 ]
 
+# --- PYDANTIC SCHEMAS ---
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+
+class StartRequest(BaseModel):
+    user_id: str = "default_user"
+
+class TaskUpdate(BaseModel):
+    user_id: str = "default_user"
+    day_number: int
+    task_index: int
+    completed: bool
+
+class CustomTaskReq(BaseModel):
+    user_id: str = "default_user"
+    task: str
+    time: str = "12:00 PM"
+    duration: int = 30
+    task_type: str = "permanent"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
+# --- HELPER FUNCTIONS ---
 def get_ist_time():
     return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
@@ -73,7 +86,6 @@ def calculate_rank(percentage):
     else: return "F" 
 
 def get_active_tasks_for_date(user_tasks, target_date):
-    """Filters temporary tasks by date and returns a sorted list of (global_index, task)"""
     active = []
     for g_idx, t in enumerate(user_tasks):
         t_type = t.get("task_type", "permanent")
@@ -88,11 +100,25 @@ def get_active_tasks_for_date(user_tasks, target_date):
             except Exception:
                 pass
     
-    # Sort exactly like frontend: permanent first, then temporary at bottom
     active.sort(key=lambda x: 0 if x[1].get("task_type", "permanent") == "permanent" else 1)
     return active
 
-@app.get("/")
+def hash_password(password: str) -> str:
+    pwd_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode('utf-8')
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(days=30)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
+
+# --- HEALTH CHECK ---
+@app.api_route("/", methods=["GET", "HEAD"])
 async def health():
     try:
         await client.admin.command('ping')
@@ -100,6 +126,60 @@ async def health():
     except Exception as e:
         return {"status": "Online", "database": f"Error: {str(e)} ❌"}
 
+# --- AUTHENTICATION ROUTES ---
+@app.post("/api/auth/register")
+@app.post("/auth/register")
+async def register(user_data: AuthRequest):
+    email_clean = user_data.email.strip().lower()
+    existing_user = await users_collection.find_one({"email": email_clean})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="User already exists with this email!")
+
+    hashed_pwd = hash_password(user_data.password.strip())
+    ist_now = get_ist_time()
+    
+    new_user = {
+        "email": email_clean,
+        "password": hashed_pwd,
+        "user_id": email_clean,
+        "start_date": ist_now.isoformat(),
+        "active": True,
+        "history": {},
+        "tasks": [] # Dynamic Tasks for New Accounts
+    }
+
+    result = await users_collection.insert_one(new_user)
+    user_id = str(result.inserted_id)
+    token = create_access_token({"userId": user_id, "email": email_clean})
+
+    return {
+        "success": True,
+        "token": token,
+        "userId": email_clean,
+        "email": email_clean,
+        "message": "Shadow Monarch Awakened!"
+    }
+
+@app.post("/api/auth/login")
+@app.post("/auth/login")
+async def login(user_data: AuthRequest):
+    email_clean = user_data.email.strip().lower()
+    user = await users_collection.find_one({"email": email_clean})
+    
+    if not user or not verify_password(user_data.password.strip(), user["password"]):
+        raise HTTPException(status_code=400, detail="Invalid Email or Password!")
+
+    token = create_access_token({"userId": str(user["_id"]), "email": user["email"]})
+
+    return {
+        "success": True,
+        "token": token,
+        "userId": user.get("user_id", email_clean),
+        "email": user["email"],
+        "message": "Welcome Back, Shadow Monarch!"
+    }
+
+# --- CHALLENGE & TASK PROGRESSION ENDPOINTS ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -155,9 +235,7 @@ async def get_current_status(user_id: str = "default_user"):
                 "end_date": t.get("end_date")
             })
         
-        # Percentage isolated from temporary tasks
         completion_percentage = 100.0 if is_sunday else ( (permanent_completed / permanent_total * 100) if permanent_total > 0 else 100.0 )
-        
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5) 
         current_rank_daily = calculate_rank(completion_percentage)
@@ -230,7 +308,6 @@ async def add_custom_task(req: CustomTaskReq):
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # Initialize tasks array for legacy users if missing
         if "tasks" not in user:
             await users_collection.update_one(
                 {"user_id": req.user_id}, 
@@ -276,7 +353,6 @@ async def update_task(req: TaskUpdate):
         history[today_str] = completed_today
         await users_collection.update_one({"user_id": req.user_id}, {"$set": {"history": history}})
         
-        # Calculate new percent dynamically for frontend
         perm_total = sum(1 for _, t in active_tasks if t.get("task_type", "permanent") == "permanent")
         perm_completed = sum(1 for g_idx in completed_today if user_tasks[g_idx].get("task_type", "permanent") == "permanent")
         new_pct = 100.0 if ist_now.strftime("%A") == "Sunday" else ( (perm_completed / perm_total * 100) if perm_total > 0 else 100.0 )

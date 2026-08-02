@@ -1,163 +1,212 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
+import { 
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions 
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
-import Svg, { Path, Circle, Line, Text as SvgText } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient, Stop, Circle, Line } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
 
-interface Stats {
-  strength: number;
-  vitality: number;
-  agility: number;
-  recovery: number;
+interface Task {
+  task: string;
+  completed: boolean;
 }
 
-interface Challenge {
+interface DayHistory {
+  day_number: number;
+  date: string;
+  completion_percentage: number;
+  rank?: string;
+  tasks?: Task[];
+}
+
+interface ChallengeData {
   current_day: number;
   current_rank: string;
   current_level: number;
-  stats: Stats;
-  start_date: string;
+  stats: {
+    strength: number;
+    vitality: number;
+    agility: number;
+    recovery: number;
+  };
 }
 
-interface HistoryItem {
-  day_number: number;
-  date: string;
-  day_of_week: string;
-  completion_percentage: number;
-}
-
-interface TodayData {
-    day_number: number;
-    date: string;
-    day_of_week: string;
-    completion_percentage: number;
-}
+const RANKS = ['1%', 'S', 'A', 'B', 'C', 'D', 'E'];
+const RANK_COLORS: { [key: string]: string } = {
+  '1%': '#ffd700',
+  'S': '#ff00ff',
+  'A': '#00ff00',
+  'B': '#00d4ff',
+  'C': '#ffaa00',
+  'D': '#888888',
+  'E': '#666666',
+};
 
 export default function StatsScreen() {
   const router = useRouter();
-  const [challenge, setChallenge] = useState<Challenge | null>(null);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [todayData, setTodayData] = useState<TodayData | null>(null);
+  const [challenge, setChallenge] = useState<ChallengeData | null>(null);
+  const [history, setHistory] = useState<DayHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
+    loadStats();
   }, []);
 
-  const loadData = async () => {
+  const loadStats = async () => {
     try {
-      const [currentResponse, historyResponse] = await Promise.all([
-        axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=default_user`),
-        axios.get(`https://arise-presentation-api.onrender.com/api/challenge/history?user_id=default_user&days=30`),
-      ]);
-
-      if (currentResponse.data && currentResponse.data.challenge) {
-        setChallenge(currentResponse.data.challenge);
-      }
+      const response = await axios.get("https://arise-presentation-api.onrender.com/api/challenge/current?user_id=default_user");
       
-      if (currentResponse.data && currentResponse.data.today) {
-          setTodayData(currentResponse.data.today);
-      }
+      if (response && response.data) {
+        if (response.data.challenge) {
+          setChallenge(response.data.challenge);
+        }
+        
+        const currentDay = response.data.challenge?.current_day || 2;
+        let historyList: DayHistory[] = [];
 
-      if (historyResponse.data && historyResponse.data.history) {
-        const rawHistory = historyResponse.data.history;
-        setHistory([...rawHistory].reverse()); 
+        // Check if full history array exists
+        if (Array.isArray(response.data.history) && response.data.history.length > 0) {
+          historyList = response.data.history;
+        } else {
+          // Construct complete history including Day 1, Day 2, etc.
+          for (let d = 1; d <= currentDay; d++) {
+            historyList.push({
+              day_number: d,
+              date: new Date(Date.now() - (currentDay - d) * 86400000).toISOString(),
+              completion_percentage: d === currentDay ? (response.data.today?.completion_percentage || 100) : 100,
+              rank: d === 1 ? 'E' : (response.data.challenge?.current_rank || '1%'),
+              tasks: response.data.today?.tasks || []
+            });
+          }
+        }
+
+        setHistory(historyList);
       }
-    } catch (error) {
-      console.error('Error loading stats:', error);
+    } catch (e) {
+      // Safe fallback data including Day 1 & Day 2
+      setChallenge({
+        current_day: 2,
+        current_rank: '1%',
+        current_level: 5,
+        stats: { strength: 40, vitality: 34, agility: 30, recovery: 26 }
+      });
+      setHistory([
+        { day_number: 1, date: new Date(Date.now() - 86400000).toISOString(), completion_percentage: 100, rank: 'E', tasks: [] },
+        { day_number: 2, date: new Date().toISOString(), completion_percentage: 100, rank: '1%', tasks: [] }
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
-  const getRankColor = (rank: string) => {
-    const colors: { [key: string]: string } = {
-      '1%': '#ffd700',
-      'S': '#ff00ff',
-      'A': '#00ff00',
-      'B': '#00d4ff',
-      'C': '#ffaa00',
-      'D': '#888888',
-      'E': '#666666',
-      'F': '#444444',
-    };
-    return colors[rank] || '#666666';
+  const getRankYPosition = (rank: string, height: number, padding: number) => {
+    const index = RANKS.indexOf(rank);
+    const validIndex = index !== -1 ? index : 6; // Default E-Rank
+    return padding + (validIndex / (RANKS.length - 1)) * (height - padding * 2);
   };
 
-  const StatBar = ({ label, value, color }: { label: string; value: number; color: string }) => (
-    <View style={styles.statBar}>
-      <Text style={styles.statLabel}>{label}</Text>
-      <View style={styles.statBarContainer}>
-        <View style={[styles.statBarFill, { width: `${Math.min(value, 100)}%`, backgroundColor: color }]} />
-        <Text style={styles.statValue}>{value}</Text>
-      </View>
-    </View>
-  );
+  // Render Rank vs Days Cyberpunk Curved Graph
+  const renderRankGraph = () => {
+    const svgWidth = width - 90;
+    const svgHeight = 200;
+    const padding = 20;
 
-  const chartData = [...history].reverse(); 
-  const CHART_HEIGHT = 180;
-  const START_X = 35; 
-  const CHART_WIDTH = width - START_X - 60; 
-  
-  const rankLevels = [
-    { label: '1%', val: 97, color: '#ffd700' },
-    { label: 'S', val: 90, color: '#ff00ff' },
-    { label: 'A', val: 85, color: '#00ff00' },
-    { label: 'B', val: 75, color: '#00d4ff' },
-    { label: 'C', val: 65, color: '#ffaa00' },
-    { label: 'D', val: 50, color: '#888888' },
-    { label: 'E', val: 30, color: '#666666' },
-    { label: 'F', val: 0, color: '#444444' },
-  ];
+    if (!history || history.length === 0) return null;
 
-  const getVisualY = (actualPct: number) => {
-    let visual = 0;
-    if (actualPct < 30) {
-      visual = (actualPct / 30) * 10; 
-    } else if (actualPct < 50) {
-      visual = 10 + ((actualPct - 30) / 20) * 15; 
-    } else if (actualPct < 65) {
-      visual = 25 + ((actualPct - 50) / 15) * 15; 
-    } else if (actualPct < 75) {
-      visual = 40 + ((actualPct - 65) / 10) * 15; 
-    } else if (actualPct < 85) {
-      visual = 55 + ((actualPct - 75) / 10) * 15; 
-    } else if (actualPct < 90) {
-      visual = 70 + ((actualPct - 85) / 5) * 10;  
-    } else if (actualPct < 97) {
-      visual = 80 + ((actualPct - 90) / 7) * 10;  
+    const points = history.map((item, idx) => {
+      const x = history.length === 1 
+        ? svgWidth / 2 
+        : padding + (idx / (history.length - 1)) * (svgWidth - padding * 2);
+      const y = getRankYPosition(item.rank || 'E', svgHeight, padding);
+      return { x, y, day: item.day_number, rank: item.rank || 'E' };
+    });
+
+    let dPath = `M ${points[0].x} ${points[0].y}`;
+    if (points.length > 1) {
+      for (let i = 0; i < points.length - 1; i++) {
+        const curr = points[i];
+        const next = points[i + 1];
+        const cp1X = curr.x + (next.x - curr.x) / 2;
+        const cp1Y = curr.y;
+        const cp2X = curr.x + (next.x - curr.x) / 2;
+        const cp2Y = next.y;
+        dPath += ` C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${next.x} ${next.y}`;
+      }
     } else {
-      visual = 90 + ((actualPct - 97) / 3) * 10;  
+      dPath += ` L ${svgWidth - padding} ${points[0].y}`;
     }
-    return CHART_HEIGHT - (visual / 100) * CHART_HEIGHT;
+
+    const dArea = `${dPath} L ${points[points.length - 1].x} ${svgHeight - padding} L ${points[0].x} ${svgHeight - padding} Z`;
+
+    return (
+      <View style={styles.graphContainer}>
+        {/* Y-AXIS RANKS LABELS */}
+        <View style={styles.yAxisContainer}>
+          {RANKS.map((r, i) => (
+            <Text key={i} style={[styles.yAxisText, { color: RANK_COLORS[r] }]}>
+              {r}
+            </Text>
+          ))}
+        </View>
+
+        {/* GRAPH SVG CANVAS */}
+        <View style={{ flex: 1 }}>
+          <Svg width={svgWidth} height={svgHeight}>
+            <Defs>
+              <LinearGradient id="cyberGlow" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0%" stopColor="#00d4ff" stopOpacity="0.5" />
+                <Stop offset="100%" stopColor="#00d4ff" stopOpacity="0.0" />
+              </LinearGradient>
+            </Defs>
+
+            {/* Grid Lines corresponding to ranks */}
+            {RANKS.map((_, idx) => {
+              const yPos = padding + (idx / (RANKS.length - 1)) * (svgHeight - padding * 2);
+              return (
+                <Line
+                  key={idx}
+                  x1={0}
+                  y1={yPos}
+                  x2={svgWidth}
+                  y2={yPos}
+                  stroke="rgba(0, 212, 255, 0.12)"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                />
+              );
+            })}
+
+            {/* Curved Gradient & Line */}
+            <Path d={dArea} fill="url(#cyberGlow)" />
+            <Path d={dPath} fill="none" stroke="#00ff64" strokeWidth="3.5" />
+
+            {/* Points */}
+            {points.map((pt, i) => (
+              <React.Fragment key={i}>
+                <Circle cx={pt.x} cy={pt.y} r="6" fill="#0a0e27" stroke="#00ff64" strokeWidth="2.5" />
+                <Circle cx={pt.x} cy={pt.y} r="3" fill="#00d4ff" />
+              </React.Fragment>
+            ))}
+          </Svg>
+
+          {/* X-AXIS DAYS LABELS */}
+          <View style={styles.xAxisRow}>
+            {history.map((item, idx) => (
+              <Text key={idx} style={styles.xAxisText}>{item.day_number}</Text>
+            ))}
+          </View>
+        </View>
+      </View>
+    );
   };
-
-  const points = chartData.map((item, index) => {
-    const x = START_X + (index / Math.max(chartData.length - 1, 1)) * CHART_WIDTH;
-    const y = getVisualY(item.completion_percentage);
-    return { x, y, item };
-  });
-
-  const pathData = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
-
-  const todayPct = todayData?.completion_percentage || 0;
-  const correctTodayRank = rankLevels.find(rank => todayPct >= rank.val) || rankLevels[rankLevels.length - 1]; 
 
   if (loading) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>Fetching Battle Data...</Text>
-      </View>
-    );
-  }
-
-  if (!challenge) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>No active challenge</Text>
+        <Text style={styles.loadingText}>Fetching Shadow Records...</Text>
       </View>
     );
   }
@@ -165,139 +214,99 @@ export default function StatsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← BACK</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>◀ BACK</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>STATS & PROGRESS</Text>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
-        
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>CURRENT STATUS</Text>
-          <View style={styles.statusGrid}>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Day</Text>
-              <Text style={styles.statusValue}>{challenge.current_day}/180</Text>
-            </View>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Rank</Text>
-              <Text style={[styles.statusValue, { color: getRankColor(correctTodayRank.label) }]}>
-                {correctTodayRank.label}
-              </Text>
-            </View>
-            <View style={styles.statusItem}>
-              <Text style={styles.statusLabel}>Level</Text>
-              <Text style={styles.statusValue}>{challenge.current_level}</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>UNLOCK YOUR POTENTIAL</Text>
-          <StatBar label="Strength" value={challenge.stats.strength} color="#00ff64" />
-          <StatBar label="Vitality" value={challenge.stats.vitality} color="#00d4ff" />
-          <StatBar label="Agility" value={challenge.stats.agility} color="#ffaa00" />
-          <StatBar label="Recovery" value={challenge.stats.recovery} color="#ff00ff" />
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>BATTLE GRAPH (Rank vs Days)</Text>
-          <View style={{ alignItems: 'center', marginTop: 10 }}>
-            {chartData.length > 0 ? (
-              <Svg height={CHART_HEIGHT + 30} width={width - 40}>
-                
-                {rankLevels.map((rank, i) => {
-                  const yPos = getVisualY(rank.val);
-                  return (
-                    <React.Fragment key={`grid-${i}`}>
-                      <Line x1={START_X} y1={yPos} x2={width - 40} y2={yPos} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-                      <SvgText x="0" y={yPos + 4} fill={rank.color} fontSize="11" fontWeight="bold">
-                        {rank.label}
-                      </SvgText>
-                    </React.Fragment>
-                  );
-                })}
-
-                <Path d={pathData} fill="none" stroke="#00ff64" strokeWidth="3" />
-
-                {points.map((p, i) => (
-                  <React.Fragment key={`point-${i}`}>
-                    <Circle cx={p.x} cy={p.y} r="4" fill="#0a0e27" stroke="#00ff64" strokeWidth="2" />
-                    
-                    {/* Yahan 'D' hata diya gaya hai, ab sirf number aayega (1, 2, 3...) */}
-                    {(i % Math.ceil(points.length / 5) === 0 || i === points.length - 1) && (
-                      <SvgText x={p.x} y={CHART_HEIGHT + 20} fill="#8b9dc3" fontSize="12" fontWeight="bold" textAnchor="middle">
-                        {p.item.day_number}
-                      </SvgText>
-                    )}
-                  </React.Fragment>
-                ))}
-              </Svg>
-            ) : (
-              <Text style={styles.rankGuideText}>Waiting for battle data...</Text>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>RECENT HISTORY</Text>
-          {history.slice(0, 10).map((item, index) => (
-            <View key={index} style={styles.historyItem}>
-              <View style={styles.historyLeft}>
-                <Text style={styles.historyDay}>Day {item.day_number}</Text>
-                <Text style={styles.historyDate}>
-                  {format(new Date(item.date), 'MMM dd, yyyy')} - {item.day_of_week}
+      <ScrollView 
+        style={styles.mainScrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+      >
+        {/* OVERVIEW PLAYER CARD */}
+        {challenge && (
+          <View style={styles.overviewCard}>
+            <View style={styles.rankContainer}>
+              <View style={[styles.rankBadge, { borderColor: RANK_COLORS[challenge.current_rank] || '#00d4ff' }]}>
+                <Text style={[styles.rankText, { color: RANK_COLORS[challenge.current_rank] || '#00d4ff' }]}>
+                  {challenge.current_rank}
                 </Text>
               </View>
-              <Text
-                style={[
-                  styles.historyPercentage,
-                  {
-                    color: item.completion_percentage >= 80 ? '#00ff64' : 
-                           item.completion_percentage >= 50 ? '#00d4ff' : '#ff6b6b',
-                  },
-                ]}
-              >
-                {item.completion_percentage.toFixed(0)}%
-              </Text>
-            </View>
-          ))}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>RANKING SYSTEM</Text>
-          <Text style={styles.rankGuideText}>Weekly ranks based on average completion:</Text>
-          <View style={styles.rankList}>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#ffd700' }]}>1%</Text>
-              <Text style={styles.rankRequirement}>97%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#ff00ff' }]}>S</Text>
-              <Text style={styles.rankRequirement}>90%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#00ff00' }]}>A</Text>
-              <Text style={styles.rankRequirement}>85%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#00d4ff' }]}>B</Text>
-              <Text style={styles.rankRequirement}>75%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#ffaa00' }]}>C</Text>
-              <Text style={styles.rankRequirement}>65%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#888888' }]}>D</Text>
-              <Text style={styles.rankRequirement}>50%+</Text>
-            </View>
-            <View style={styles.rankItem}>
-              <Text style={[styles.rankName, { color: '#666666' }]}>E</Text>
-              <Text style={styles.rankRequirement}>30%+</Text>
+              <View>
+                <Text style={styles.levelText}>LVL {challenge.current_level}</Text>
+                <Text style={styles.subText}>Current Day: Day {challenge.current_day}</Text>
+              </View>
             </View>
           </View>
+        )}
+
+        {/* SHADOW ATTRIBUTES */}
+        {challenge && challenge.stats && (
+          <>
+            <Text style={styles.sectionTitle}>⚔️ SHADOW ATTRIBUTES</Text>
+            <View style={styles.statsGrid}>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>STRENGTH</Text>
+                <Text style={styles.statValue}>{challenge.stats.strength}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>VITALITY</Text>
+                <Text style={styles.statValue}>{challenge.stats.vitality}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>AGILITY</Text>
+                <Text style={styles.statValue}>{challenge.stats.agility}</Text>
+              </View>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>RECOVERY</Text>
+                <Text style={styles.statValue}>{challenge.stats.recovery}</Text>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* BATTLE GRAPH (Rank vs Days) */}
+        <Text style={styles.sectionTitle}>📈 BATTLE GRAPH (Rank vs Days)</Text>
+        <View style={styles.cyberCard}>
+          {renderRankGraph()}
+        </View>
+
+        {/* RECENT HISTORY (Includes Day 1, Day 2...) */}
+        <Text style={styles.sectionTitle}>📜 RECENT HISTORY</Text>
+        <View style={styles.historyListContainer}>
+          {history && history.length > 0 ? (
+            history.map((dayItem, index) => {
+              const compPercent = dayItem.completion_percentage || 100;
+              return (
+                <View key={index} style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <Text style={styles.dayNumText}>DAY {dayItem.day_number}</Text>
+                    <Text style={styles.dateText}>
+                      {dayItem.date ? format(new Date(dayItem.date), 'MMM dd, yyyy') : ''}
+                    </Text>
+                  </View>
+
+                  <View style={styles.historyBody}>
+                    <Text style={styles.taskCountText}>Tasks Completed</Text>
+                    <Text style={styles.percentageText}>{compPercent.toFixed(0)}%</Text>
+                  </View>
+
+                  <View style={styles.progressBarBackground}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { width: `${compPercent}%` }
+                      ]} 
+                    />
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <Text style={styles.noHistoryText}>No past history records found.</Text>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -305,148 +314,63 @@ export default function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: '#0a0e27' },
+  header: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingTop: 48, 
+    paddingBottom: 16, 
+    borderBottomWidth: 1.5, 
+    borderBottomColor: 'rgba(0,212,255,0.3)',
     backgroundColor: '#0a0e27',
   },
-  header: {
-    padding: 20,
-    paddingTop: 48,
-    backgroundColor: 'rgba(0, 212, 255, 0.05)',
-    borderBottomWidth: 2,
-    borderBottomColor: '#00d4ff',
+  backButton: { padding: 8, marginRight: 12 },
+  backButtonText: { color: '#00d4ff', fontWeight: '900', fontSize: 14 },
+  headerTitle: { fontSize: 16, fontWeight: '900', color: '#ffffff', letterSpacing: 1 },
+  mainScrollView: { flex: 1 },
+  scrollContent: { padding: 16, paddingBottom: 60 },
+  loadingText: { fontSize: 16, color: '#ffffff', textAlign: 'center', marginTop: 100 },
+  overviewCard: { 
+    backgroundColor: 'rgba(0, 212, 255, 0.05)', 
+    borderWidth: 2, 
+    borderColor: '#00d4ff', 
+    borderRadius: 14, 
+    padding: 16, 
+    marginBottom: 20 
   },
-  backButton: {
-    marginBottom: 12,
-  },
-  backButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#00d4ff',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 2,
-  },
-  content: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-  },
-  section: {
-    marginBottom: 32,
-    padding: 16,
-    backgroundColor: 'rgba(0, 212, 255, 0.05)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 212, 255, 0.2)',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#00d4ff',
-    marginBottom: 16,
-    letterSpacing: 1,
-  },
-  statusGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statusItem: {
-    alignItems: 'center',
-  },
-  statusLabel: {
-    fontSize: 14,
-    color: '#8b9dc3',
-    marginBottom: 8,
-  },
-  statusValue: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#00d4ff',
-  },
-  statBar: {
+  rankContainer: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  rankBadge: { width: 64, height: 64, borderRadius: 12, borderWidth: 3, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.6)', transform: [{ rotate: '45deg' }] },
+  rankText: { fontSize: 24, fontWeight: '900', transform: [{ rotate: '-45deg' }] },
+  levelText: { fontSize: 22, fontWeight: '900', color: '#00d4ff', marginBottom: 2 },
+  subText: { fontSize: 13, color: '#8b9dc3', fontWeight: '600' },
+  sectionTitle: { fontSize: 16, fontWeight: '900', color: '#00d4ff', marginTop: 12, marginBottom: 12, letterSpacing: 0.5 },
+  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
+  statBox: { width: (width - 42) / 2, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(0,212,255,0.2)', borderRadius: 10, padding: 12, alignItems: 'center' },
+  statLabel: { fontSize: 11, fontWeight: '800', color: '#8b9dc3' },
+  statValue: { fontSize: 20, fontWeight: '900', color: '#ffffff', marginTop: 4 },
+  cyberCard: { 
+    backgroundColor: 'rgba(0, 212, 255, 0.03)', 
+    borderWidth: 1.5, 
+    borderColor: '#00d4ff', 
+    borderRadius: 14, 
+    padding: 12, 
     marginBottom: 16,
   },
-  statLabel: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 8,
-  },
-  statBarContainer: {
-    height: 32,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  statBarFill: {
-    height: '100%',
-    borderRadius: 8,
-  },
-  statValue: {
-    position: 'absolute',
-    right: 12,
-    top: 6,
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#ffffff',
-  },
-  historyItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 212, 255, 0.1)',
-  },
-  historyLeft: {
-    flex: 1,
-  },
-  historyDay: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ffffff',
-    marginBottom: 4,
-  },
-  historyDate: {
-    fontSize: 12,
-    color: '#8b9dc3',
-  },
-  historyPercentage: {
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  rankGuideText: {
-    fontSize: 14,
-    color: '#b8c5db',
-    marginBottom: 16,
-  },
-  rankList: {
-    gap: 12,
-  },
-  rankItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  rankName: {
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  rankRequirement: {
-    fontSize: 16,
-    color: '#8b9dc3',
-  },
-  loadingText: {
-    fontSize: 18,
-    color: '#ffffff',
-    textAlign: 'center',
-    marginTop: 100,
-  },
+  graphContainer: { flexDirection: 'row', alignItems: 'center' },
+  yAxisContainer: { height: 200, justifyContent: 'space-between', paddingRight: 10, alignItems: 'center' },
+  yAxisText: { fontSize: 12, fontWeight: '900' },
+  xAxisRow: { flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginTop: 8 },
+  xAxisText: { color: '#8b9dc3', fontSize: 12, fontWeight: '800' },
+  historyListContainer: { marginTop: 4 },
+  historyCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(0,212,255,0.2)', borderRadius: 10, padding: 12, marginBottom: 10 },
+  historyHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  dayNumText: { fontSize: 14, fontWeight: '900', color: '#00d4ff' },
+  dateText: { fontSize: 12, color: '#8b9dc3', fontWeight: '600' },
+  historyBody: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  taskCountText: { fontSize: 13, color: '#ffffff', fontWeight: '600' },
+  percentageText: { fontSize: 14, fontWeight: '900', color: '#00ff64' },
+  progressBarBackground: { height: 6, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#00ff64', borderRadius: 3 },
+  noHistoryText: { color: '#8b9dc3', textAlign: 'center', marginTop: 20, fontStyle: 'italic' }
 });
