@@ -98,11 +98,8 @@ export default function AuthScreen() {
         email: resetEmail.trim().toLowerCase()
       });
       if (res.data.success) {
-        const displayMsg = res.data.debug_otp 
-          ? `${res.data.message}\n\n6-Digit OTP Code: ${res.data.debug_otp}`
-          : res.data.message;
-
-        Alert.alert('OTP Verification 📩', displayMsg);
+        // STRICT SECURE RESPONSE: Never display OTP on screen
+        Alert.alert('OTP Sent 📩', res.data.message);
         setResetStep(2);
       }
     } catch (err: any) {
@@ -125,7 +122,7 @@ export default function AuthScreen() {
         new_password: newPassword.trim()
       });
       if (res.data.success) {
-        Alert.alert('Success 🎉', 'Password reset successfully! You can now login.');
+        Alert.alert('Success 🎉', 'Password reset successfully! You can now login with your new password.');
         handleCancelModal();
       }
     } catch (err: any) {
@@ -135,7 +132,7 @@ export default function AuthScreen() {
     }
   };
 
-  // AUTOMATIC REFRESH & RESET ON CANCEL CLICK
+  // AUTOMATIC REFRESH AND STATE RESET ON CANCEL
   const handleCancelModal = () => {
     setForgotModalVisible(false);
     setResetStep(1);
@@ -274,7 +271,7 @@ export default function AuthScreen() {
               </>
             )}
 
-            {/* AUTO REFRESH CANCEL BUTTON */}
+            {/* AUTOMATIC REFRESH ON CANCEL CLICK */}
             <TouchableOpacity style={{ marginTop: 16, alignItems: 'center' }} onPress={handleCancelModal}>
               <Text style={{ color: '#ff6b6b', fontWeight: '800' }}>CANCEL</Text>
             </TouchableOpacity>
