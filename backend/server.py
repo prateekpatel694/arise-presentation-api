@@ -257,7 +257,7 @@ async def reset_password(req: VerifyResetReq):
 
     return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
-# --- QUEST & CHALLENGE MANAGEMENT (TEMPORARY TASK TIMELINE LOCK ENFORCED) ---
+# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT-ONLY PERCENTAGE CALCULATION) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -284,11 +284,14 @@ async def get_current_status(user_id: str = "default_user"):
         history = user.get("history", {})
         if not isinstance(history, dict): history = {}
             
-        completed_today = history.get(today_str, [])
-        if not isinstance(completed_today, list): completed_today = []
+        completed_today_indices = history.get(today_str, [])
+        if not isinstance(completed_today_indices, list): completed_today_indices = []
 
         tasks_response = []
-        unlocked_active_count = 0
+        
+        # COUNTERS SPECIFICALLY FOR PERMANENT TASKS PERCENTAGE CALCULATION
+        permanent_total_count = 0
+        permanent_completed_count = 0
 
         for idx, t in enumerate(user_tasks):
             task_type = t.get("task_type", "permanent")
@@ -304,26 +307,32 @@ async def get_current_status(user_id: str = "default_user"):
                 elif t_start and today_str < t_start:
                     is_locked = True
 
-            # Skip expired tasks
+            # Hide expired temporary tasks
             if is_expired:
                 continue
 
-            if not is_locked:
-                unlocked_active_count += 1
+            is_done = idx in completed_today_indices
+
+            # ONLY PERMANENT TASKS COUNT TOWARDS DAILY COMPLETION PERCENTAGE & RANK
+            if task_type == "permanent":
+                permanent_total_count += 1
+                if is_done:
+                    permanent_completed_count += 1
 
             tasks_response.append({
                 "task": t["task"], 
                 "time": t["time"], 
                 "duration": t["duration"],
-                "completed": idx in completed_today,
+                "completed": is_done,
                 "task_type": task_type,
                 "start_date": t_start,
                 "end_date": t_end,
                 "is_locked": is_locked
             })
         
+        # PERCENTAGE CALCULATED STRICTLY FROM PERMANENT TASKS
         completion_percentage = 100.0 if is_sunday else (
-            (len(completed_today) / unlocked_active_count * 100) if unlocked_active_count > 0 else 0.0
+            (permanent_completed_count / permanent_total_count * 100) if permanent_total_count > 0 else 0.0
         )
         
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
@@ -351,8 +360,13 @@ async def get_current_status(user_id: str = "default_user"):
             if day_name == "Sunday":
                 c_percent = 100.0
             elif date_str in history and isinstance(history[date_str], list):
-                tasks_done_len = len(history[date_str])
-                c_percent = (tasks_done_len / unlocked_active_count * 100) if unlocked_active_count > 0 else 0.0
+                # Count completed permanent tasks for historical date
+                history_done_indices = history[date_str]
+                perm_done_hist = 0
+                for h_idx in history_done_indices:
+                    if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
+                        perm_done_hist += 1
+                c_percent = (perm_done_hist / permanent_total_count * 100) if permanent_total_count > 0 else 0.0
             else:
                 c_percent = 0.0
                 
