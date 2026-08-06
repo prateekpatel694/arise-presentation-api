@@ -63,6 +63,12 @@ export default function StatsScreen() {
   const [history, setHistory] = useState<DayHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // NEW STATS METRICS STATES
+  const [dailyTaskRatio, setDailyTaskRatio] = useState<string>('0/0');
+  const [weeklyAvgRate, setWeeklyAvgRate] = useState<string>('0%');
+  const [weeklyAvgRank, setWeeklyAvgRank] = useState<string>('E');
+  const [remainingDays, setRemainingDays] = useState<number>(180);
+
   useEffect(() => {
     loadStats();
   }, []);
@@ -77,8 +83,17 @@ export default function StatsScreen() {
       if (response && response.data) {
         if (response.data.challenge) {
           setChallenge(response.data.challenge);
+          const currentDayNum = response.data.challenge.current_day || 1;
+          setRemainingDays(Math.max(0, 180 - currentDayNum));
         }
         
+        // 1. CALCULATE DAILY TASK RATIO (Completed/Total)
+        if (response.data.today && Array.isArray(response.data.today.tasks)) {
+          const tasks = response.data.today.tasks;
+          const completedCount = tasks.filter((t: any) => t.completed).length;
+          setDailyTaskRatio(`${completedCount}/${tasks.length}`);
+        }
+
         const currentDay = response.data.challenge?.current_day || 1;
         let historyList: DayHistory[] = [];
 
@@ -101,6 +116,16 @@ export default function StatsScreen() {
         }
 
         setHistory(historyList);
+
+        // 2. CALCULATE WEEKLY AVERAGE COMPLETION RATE & RANK
+        if (historyList.length > 0) {
+          const recentDays = historyList.slice(-7); // Last 7 days
+          const totalPct = recentDays.reduce((acc, item) => acc + (item.completion_percentage || 0), 0);
+          const avgPct = Math.round(totalPct / recentDays.length);
+          
+          setWeeklyAvgRate(`${avgPct}%`);
+          setWeeklyAvgRank(calculateDayRank(avgPct));
+        }
       }
     } catch (e) {
       console.error('Error fetching user stats:', e);
@@ -245,29 +270,35 @@ export default function StatsScreen() {
           </View>
         )}
 
-        {challenge && challenge.stats && (
-          <>
-            <Text style={styles.sectionTitle}>⚔️ SHADOW ATTRIBUTES</Text>
-            <View style={styles.statsGrid}>
-              <View style={styles.statBox}>
-                <Text style={styles.statLabel}>STRENGTH</Text>
-                <Text style={styles.statValue}>{challenge.stats.strength}</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statLabel}>VITALITY</Text>
-                <Text style={styles.statValue}>{challenge.stats.vitality}</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statLabel}>AGILITY</Text>
-                <Text style={styles.statValue}>{challenge.stats.agility}</Text>
-              </View>
-              <View style={styles.statBox}>
-                <Text style={styles.statLabel}>RECOVERY</Text>
-                <Text style={styles.statValue}>{challenge.stats.recovery}</Text>
-              </View>
-            </View>
-          </>
-        )}
+        {/* MODIFIED SHADOW ATTRIBUTES SECTION */}
+        <Text style={styles.sectionTitle}>⚔️ SHADOW ATTRIBUTES</Text>
+        <View style={styles.statsGrid}>
+          {/* 1. DAILY TASKS (Completed / Total) */}
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>DAILY TASKS</Text>
+            <Text style={styles.statValue}>{dailyTaskRatio}</Text>
+          </View>
+
+          {/* 2. WILLPOWER (Weekly Average Completion Rate) */}
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>WILLPOWER</Text>
+            <Text style={styles.statValue}>{weeklyAvgRate}</Text>
+          </View>
+
+          {/* 3. AVG RANK (Weekly Average Rank) */}
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>AVG RANK</Text>
+            <Text style={[styles.statValue, { color: RANK_COLORS[weeklyAvgRank] || '#00d4ff' }]}>
+              {weeklyAvgRank}
+            </Text>
+          </View>
+
+          {/* 4. END (Remaining Days out of 180) */}
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>END</Text>
+            <Text style={styles.statValue}>{remainingDays} Days</Text>
+          </View>
+        </View>
 
         <Text style={styles.sectionTitle}>📈 BATTLE GRAPH (Rank vs Days)</Text>
         <View style={styles.cyberCard}>
@@ -348,7 +379,7 @@ const styles = StyleSheet.create({
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
   statBox: { width: (width - 42) / 2, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: 'rgba(0,212,255,0.2)', borderRadius: 10, padding: 12, alignItems: 'center' },
   statLabel: { fontSize: 11, fontWeight: '800', color: '#8b9dc3' },
-  statValue: { fontSize: 20, fontWeight: '900', color: '#ffffff', marginTop: 4 },
+  statValue: { fontSize: 18, fontWeight: '900', color: '#ffffff', marginTop: 4 },
   cyberCard: { 
     backgroundColor: 'rgba(0, 212, 255, 0.03)', 
     borderWidth: 1.5, 

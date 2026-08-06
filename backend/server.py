@@ -257,7 +257,7 @@ async def reset_password(req: VerifyResetReq):
 
     return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
-# --- QUEST & CHALLENGE MANAGEMENT ---
+# --- QUEST & CHALLENGE MANAGEMENT (TEMPORARY TASK TIMELINE LOCK ENFORCED) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -288,17 +288,43 @@ async def get_current_status(user_id: str = "default_user"):
         if not isinstance(completed_today, list): completed_today = []
 
         tasks_response = []
+        unlocked_active_count = 0
+
         for idx, t in enumerate(user_tasks):
+            task_type = t.get("task_type", "permanent")
+            t_start = t.get("start_date")
+            t_end = t.get("end_date")
+
+            is_locked = False
+            is_expired = False
+
+            if task_type == "temporary":
+                if t_end and today_str > t_end:
+                    is_expired = True
+                elif t_start and today_str < t_start:
+                    is_locked = True
+
+            # Skip expired tasks
+            if is_expired:
+                continue
+
+            if not is_locked:
+                unlocked_active_count += 1
+
             tasks_response.append({
                 "task": t["task"], 
                 "time": t["time"], 
                 "duration": t["duration"],
                 "completed": idx in completed_today,
-                "task_type": t.get("task_type", "permanent")
+                "task_type": task_type,
+                "start_date": t_start,
+                "end_date": t_end,
+                "is_locked": is_locked
             })
         
-        total_tasks_count = len(tasks_response)
-        completion_percentage = 100.0 if is_sunday else ((len(completed_today) / total_tasks_count * 100) if total_tasks_count > 0 else 0.0)
+        completion_percentage = 100.0 if is_sunday else (
+            (len(completed_today) / unlocked_active_count * 100) if unlocked_active_count > 0 else 0.0
+        )
         
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5)
@@ -326,7 +352,7 @@ async def get_current_status(user_id: str = "default_user"):
                 c_percent = 100.0
             elif date_str in history and isinstance(history[date_str], list):
                 tasks_done_len = len(history[date_str])
-                c_percent = (tasks_done_len / total_tasks_count * 100) if total_tasks_count > 0 else 0.0
+                c_percent = (tasks_done_len / unlocked_active_count * 100) if unlocked_active_count > 0 else 0.0
             else:
                 c_percent = 0.0
                 

@@ -1,15 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, 
-  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform 
+  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Vibration 
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import Svg, { Circle } from 'react-native-svg';
 
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 const { width } = Dimensions.get('window');
 
 interface Task {
@@ -20,6 +22,7 @@ interface Task {
   task_type?: 'permanent' | 'temporary';
   start_date?: string;
   end_date?: string;
+  is_locked?: boolean;
 }
 
 interface DailyProgress {
@@ -54,9 +57,17 @@ export default function Dashboard() {
   const [animatingTask, setAnimatingTask] = useState<number | null>(null);
   const [slashAnim] = useState(new Animated.Value(0));
 
+  // AWAKENING LOADING TIMER STATES
+  const [timerSeconds, setTimerSeconds] = useState(50);
+  const [serverAwakeSignal, setServerAwakeSignal] = useState(false);
+  const strokeAnim = useRef(new Animated.Value(0)).current;
+
   // RANK ANIMATION VIDEO STATES
   const [rankVideoSource, setRankVideoSource] = useState<any>(null);
   const [showRankVideo, setShowRankVideo] = useState<boolean>(false);
+
+  // PLUS BUTTON SELECTION MODAL
+  const [plusMenuVisible, setPlusModalVisible] = useState(false);
 
   // Add Task Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -64,6 +75,20 @@ export default function Dashboard() {
   const [taskTime, setTaskTime] = useState('12:00 PM');
   const [taskDuration, setTaskDuration] = useState('30');
   const [taskType, setTaskType] = useState<'permanent' | 'temporary'>('permanent');
+
+  // FOCUS TIMER MODAL & HH:MM:SS STATES
+  const [focusModalVisible, setFocusModalVisible] = useState(false);
+  const [inputHours, setInputHours] = useState('00');
+  const [inputMins, setInputMins] = useState('25');
+  const [inputSecs, setInputSecs] = useState('00');
+  const [focusRemainingSecs, setFocusRemainingSecs] = useState<number | null>(null);
+  const [focusTotalSecs, setFocusTotalSecs] = useState<number>(1500);
+  const [focusRunning, setFocusRunning] = useState(false);
+  const [isFocusCompleted, setIsFocusCompleted] = useState(false);
+  const [smoothProgressRatio, setSmoothProgressRatio] = useState<number>(0);
+  
+  const focusEndTimeRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
 
   // Calendar Modal
   const [startDate, setStartDate] = useState(new Date());
@@ -75,10 +100,45 @@ export default function Dashboard() {
   const [addingTask, setAddingTask] = useState(false);
 
   useEffect(() => {
-    // Render Silent Wakeup Ping Trigger on App Load
-    axios.get("https://arise-presentation-api.onrender.com/").catch(() => {});
+    checkServerAwakeCache();
     initializeUserAndLoadData();
   }, []);
+
+  const checkServerAwakeCache = async () => {
+    try {
+      const isAwake = await AsyncStorage.getItem('server_is_awake');
+      if (isAwake === 'true') {
+        setServerAwakeSignal(true);
+      } else {
+        start50sLoadingTimer();
+      }
+    } catch (e) {
+      console.log('Cache check handled.');
+    }
+  };
+
+  // 50-SECOND CIRCULAR LOADING TIMER LOGIC
+  const start50sLoadingTimer = () => {
+    try {
+      Animated.timing(strokeAnim, {
+        toValue: 1,
+        duration: 50000,
+        useNativeDriver: true,
+      }).start();
+
+      let countdown = 50;
+      const interval = setInterval(() => {
+        countdown -= 1;
+        if (countdown >= 0) {
+          setTimerSeconds(countdown);
+        } else {
+          clearInterval(interval);
+        }
+      }, 1000);
+    } catch (e) {
+      console.log('Timer loop handled.');
+    }
+  };
 
   const initializeUserAndLoadData = async () => {
     try {
@@ -102,13 +162,12 @@ export default function Dashboard() {
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
           
-          // DAILY AUTO-RESET CHECK (Verifies today's date vs loaded data date)
+          // DAILY AUTO-RESET CHECK
           const todayDateStr = format(new Date(), 'yyyy-MM-dd');
           const loadedDateStr = response.data.today.date;
 
           let updatedTodayData = response.data.today;
           if (loadedDateStr && loadedDateStr !== todayDateStr) {
-            // Uncheck tasks if date changed
             updatedTodayData.tasks = updatedTodayData.tasks.map((t: Task) => ({
               ...t,
               completed: false
@@ -118,8 +177,10 @@ export default function Dashboard() {
           }
 
           setToday(updatedTodayData);
+          setServerAwakeSignal(true);
+          await AsyncStorage.setItem('server_is_awake', 'true');
 
-          // CHECK RANK ANIMATION (ONLY TRIGGER ONCE PER DAY PER RANK)
+          // CHECK RANK ANIMATION
           const currentRank = response.data.challenge.current_rank;
           await checkAndPlayRankAnimationOnce(currentRank, todayDateStr);
         }
@@ -129,12 +190,11 @@ export default function Dashboard() {
     }
   };
 
-  // TRIGGER RANK ANIMATION ONLY ONCE PER DAY
   const checkAndPlayRankAnimationOnce = async (rank: string, todayDateStr: string) => {
     const playKey = `played_rank_${rank}_${todayDateStr}`;
     const alreadyPlayed = await AsyncStorage.getItem(playKey);
 
-    if (alreadyPlayed === 'true') return; // Do not replay if already played today
+    if (alreadyPlayed === 'true') return;
 
     if (rank === '1%') {
       setRankVideoSource(require('../assets/rank_1percent.mp4'));
@@ -175,7 +235,12 @@ export default function Dashboard() {
     ]);
   };
 
-  const handleTaskPress = async (taskIndex: number, currentStatus: boolean) => {
+  const handleTaskPress = async (taskIndex: number, currentStatus: boolean, isLocked?: boolean) => {
+    if (isLocked) {
+      Alert.alert('🔒 QUEST LOCKED', 'This temporary quest is scheduled for a future date. It cannot be completed today!');
+      return;
+    }
+
     setAnimatingTask(taskIndex);
 
     Animated.sequence([
@@ -222,6 +287,88 @@ export default function Dashboard() {
         }
       }
     ]);
+  };
+
+  // HIGH-FREQUENCY 60 FPS SMOOTH ANIMATION LOOP
+  useEffect(() => {
+    const updateSmoothTimer = () => {
+      if (focusRunning && focusEndTimeRef.current !== null && focusTotalSecs > 0) {
+        const now = Date.now();
+        const remainingMs = Math.max(0, focusEndTimeRef.current - now);
+        const remainingSecs = Math.ceil(remainingMs / 1000);
+
+        setFocusRemainingSecs(remainingSecs);
+
+        const totalMs = focusTotalSecs * 1000;
+        const elapsedMs = totalMs - remainingMs;
+        const ratio = Math.min(1.0, elapsedMs / totalMs);
+        setSmoothProgressRatio(ratio);
+
+        if (remainingMs <= 0) {
+          setFocusRunning(false);
+          setIsFocusCompleted(true);
+          setSmoothProgressRatio(1.0);
+          playTimerEndNotificationSound();
+          if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+          return;
+        }
+
+        animationFrameRef.current = requestAnimationFrame(updateSmoothTimer);
+      }
+    };
+
+    if (focusRunning) {
+      animationFrameRef.current = requestAnimationFrame(updateSmoothTimer);
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [focusRunning, focusTotalSecs]);
+
+  const playTimerEndNotificationSound = async () => {
+    try {
+      Vibration.vibrate([0, 500, 200, 500]);
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' }
+      );
+      await sound.playAsync();
+    } catch (e) {
+      console.log('Audio/Vibration Alert Played.');
+    }
+  };
+
+  const startFocusTimer = async () => {
+    const hrs = parseInt(inputHours) || 0;
+    const mins = parseInt(inputMins) || 0;
+    const secs = parseInt(inputSecs) || 0;
+    const total = (hrs * 3600) + (mins * 60) + secs;
+
+    if (total <= 0) {
+      Alert.alert('Invalid Time', 'Please set a focus timer duration greater than 0 seconds!');
+      return;
+    }
+
+    const endTime = Date.now() + total * 1000;
+    focusEndTimeRef.current = endTime;
+
+    setFocusTotalSecs(total);
+    setFocusRemainingSecs(total);
+    setSmoothProgressRatio(0);
+    setIsFocusCompleted(false);
+    setFocusRunning(true);
+  };
+
+  const stopFocusTimer = async () => {
+    setFocusRunning(false);
+    setIsFocusCompleted(false);
+    setFocusRemainingSecs(null);
+    setSmoothProgressRatio(0);
+    focusEndTimeRef.current = null;
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    Vibration.cancel();
   };
 
   const openCalendarFor = (target: 'start' | 'end') => {
@@ -324,10 +471,60 @@ export default function Dashboard() {
     return <View>{rows}</View>;
   };
 
+  // CIRCULAR SVG CALCULATION FOR AWAKENING LOADING
+  const radius = 60;
+  const strokeWidth = 8;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = strokeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, circumference]
+  });
+  const formattedTime = `00:${timerSeconds < 10 ? `0${timerSeconds}` : timerSeconds}`;
+
+  // CONTINUOUS 60FPS FLUID DASH OFFSET & COLOR CALCULATION
+  const focusDashOffsetValue = (1 - smoothProgressRatio) * circumference;
+
+  const focusRingColorSolid = isFocusCompleted 
+    ? '#ff2e2e' 
+    : (smoothProgressRatio > 0.6 ? '#ff2e2e' : (smoothProgressRatio > 0.3 ? '#ffaa00' : '#00d4ff'));
+
+  // LOADING STATE WITH 50S CIRCULAR TIMER OVERLAY
+  if ((!challenge || !today) && !serverAwakeSignal) {
+    return (
+      <View style={styles.loadingFullContainer}>
+        <Text style={styles.loadingTitle}>Awakening System...</Text>
+
+        <View style={styles.timerCircleContainer}>
+          <Svg width={140} height={140} viewBox="0 0 140 140">
+            <Circle cx="70" cy="70" r={radius} stroke="#333333" strokeWidth={strokeWidth} fill="none" />
+            <AnimatedCircle
+              cx="70"
+              cy="70"
+              r={radius}
+              stroke="#00d4ff"
+              strokeWidth={strokeWidth}
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              fill="none"
+              transform="rotate(-90 70 70)"
+            />
+          </Svg>
+          <View style={styles.timerTextCenterContainer}>
+            <Text style={styles.timerDigitsText}>{formattedTime}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.loadingSubText}>Waking up Render Cloud Server in Background...</Text>
+      </View>
+    );
+  }
+
+  // FALLBACK LOADING WHILE CACHED LOAD
   if (!challenge || !today) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Awakening System...</Text>
+      <View style={styles.loadingFullContainer}>
+        <ActivityIndicator color="#00d4ff" size="large" />
       </View>
     );
   }
@@ -356,6 +553,12 @@ export default function Dashboard() {
       </View>
     );
   }
+
+  // FORMAT HH:MM:SS FOR DISPLAY
+  const currentFocusHours = focusRemainingSecs !== null ? Math.floor(focusRemainingSecs / 3600) : 0;
+  const currentFocusMins = focusRemainingSecs !== null ? Math.floor((focusRemainingSecs % 3600) / 60) : 0;
+  const currentFocusSecs = focusRemainingSecs !== null ? focusRemainingSecs % 60 : 0;
+  const focusTimeDisplay = `${currentFocusHours < 10 ? `0${currentFocusHours}` : currentFocusHours}:${currentFocusMins < 10 ? `0${currentFocusMins}` : currentFocusMins}:${currentFocusSecs < 10 ? `0${currentFocusSecs}` : currentFocusSecs}`;
 
   return (
     <View style={styles.container}>
@@ -398,7 +601,7 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* TASKS LIST WITH FULLY SEAMLESS CARD DESIGN */}
+      {/* TASKS LIST */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -408,26 +611,31 @@ export default function Dashboard() {
           today.tasks.map((task, index) => {
             const isTemp = task.task_type === 'temporary';
             const isAnimating = animatingTask === index;
+            const isLocked = task.is_locked;
+
             return (
               <Animated.View 
                 key={index} 
                 style={[
                   styles.systemHudCard, 
                   task.completed ? styles.hudCardCompleted : null,
+                  isLocked ? styles.hudCardLocked : null,
                   isAnimating ? styles.hudCardSlashAnim : null
                 ]}
               >
-                {/* HUD Header Tag */}
                 <View style={styles.hudHeaderRow}>
                   <View style={[styles.hudInfoBadge, task.completed && styles.hudInfoBadgeCompleted]}>
                     <Text style={[styles.hudInfoText, task.completed && styles.hudInfoTextCompleted]}>
                       ⓘ QUEST INFO
                     </Text>
                   </View>
-                  {isTemp && <Text style={styles.tempBadge}>⏳ TEMP QUEST</Text>}
+                  {isTemp && (
+                    <Text style={[styles.tempBadge, isLocked && styles.tempBadgeLocked]}>
+                      {isLocked ? `🔒 STARTS ${task.start_date}` : '⏳ TEMP QUEST'}
+                    </Text>
+                  )}
                 </View>
 
-                {/* Quest Title & Time */}
                 <Text style={[styles.hudQuestTitle, task.completed ? styles.taskTitleCompleted : null]}>
                   {task.task}
                 </Text>
@@ -439,14 +647,18 @@ export default function Dashboard() {
                   <Text style={styles.hudDurationText}>({task.duration} mins)</Text>
                 </View>
 
-                {/* Bottom Action Row */}
                 <View style={styles.hudActionRow}>
                   <TouchableOpacity
-                    style={[styles.hudActionButton, task.completed ? styles.killButton : styles.defeatButton]}
-                    onPress={() => handleTaskPress(index, task.completed)}
+                    style={[
+                      styles.hudActionButton, 
+                      task.completed ? styles.killButton : styles.defeatButton,
+                      isLocked ? styles.lockedButton : null
+                    ]}
+                    onPress={() => handleTaskPress(index, task.completed, isLocked)}
+                    disabled={isLocked}
                   >
-                    <Text style={styles.actionButtonText}>
-                      {task.completed ? '⚔️ COMPLETED' : '💀 DEFEAT'}
+                    <Text style={[styles.actionButtonText, isLocked && styles.lockedButtonText]}>
+                      {isLocked ? '🔒 LOCKED' : (task.completed ? '⚔️ COMPLETED' : '💀 DEFEAT')}
                     </Text>
                   </TouchableOpacity>
 
@@ -468,9 +680,10 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
+      {/* FLOATING PLUS BUTTON */}
       <TouchableOpacity 
         style={styles.floatingPlusButton} 
-        onPress={() => setIsModalVisible(true)}
+        onPress={() => setPlusModalVisible(true)}
       >
         <Text style={styles.floatingPlusText}>+</Text>
       </TouchableOpacity>
@@ -479,7 +692,137 @@ export default function Dashboard() {
         <Text style={styles.statsButtonText}>VIEW STATS & PROGRESS</Text>
       </TouchableOpacity>
 
-      {/* ADD TASK MODAL */}
+      {/* PLUS MENU SELECTION MODAL */}
+      <Modal visible={plusMenuVisible} animationType="fade" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.plusMenuContainer}>
+            <Text style={styles.modalTitle}>⚔️ SHADOW ACTIONS</Text>
+
+            <TouchableOpacity 
+              style={styles.plusOptionBtn} 
+              onPress={() => {
+                setPlusModalVisible(false);
+                setIsModalVisible(true);
+              }}
+            >
+              <Text style={styles.plusOptionText}>➕ ADD QUEST (CHALLENGE)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.plusOptionBtn, { borderColor: '#00ff64' }]} 
+              onPress={() => {
+                setPlusModalVisible(false);
+                setFocusModalVisible(true);
+              }}
+            >
+              <Text style={[styles.plusOptionText, { color: '#00ff64' }]}>⏱️ SHADOW FOCUS TIMER</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.modalCancelFullBtn} onPress={() => setPlusModalVisible(false)}>
+              <Text style={styles.cancelButtonText}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* SHADOW FOCUS TIMER MODAL */}
+      <Modal visible={focusModalVisible} animationType="slide" transparent={true}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, isFocusCompleted && styles.modalContainerCompletedRed]}>
+            <Text style={[styles.modalTitle, isFocusCompleted && styles.modalTitleCompletedRed]}>
+              {isFocusCompleted ? '🔥 FOCUS SESSION COMPLETE!' : '⏱️ SHADOW FOCUS TIMER'}
+            </Text>
+
+            {!focusRunning && !isFocusCompleted ? (
+              <>
+                <Text style={styles.label}>Set Focus Time (HH : MM : SS)</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginVertical: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.subLabel}>Hours</Text>
+                    <TextInput
+                      style={styles.input}
+                      keyboardType="numeric"
+                      value={inputHours}
+                      onChangeText={setInputHours}
+                      maxLength={2}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.subLabel}>Minutes</Text>
+                    <TextInput
+                      style={styles.input}
+                      keyboardType="numeric"
+                      value={inputMins}
+                      onChangeText={setInputMins}
+                      maxLength={2}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.subLabel}>Seconds</Text>
+                    <TextInput
+                      style={styles.input}
+                      keyboardType="numeric"
+                      value={inputSecs}
+                      onChangeText={setInputSecs}
+                      maxLength={2}
+                    />
+                  </View>
+                </View>
+
+                <TouchableOpacity style={styles.addSubmitButton} onPress={startFocusTimer}>
+                  <Text style={styles.addSubmitText}>START FOCUS SESSION ⚔️</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={{ alignItems: 'center', marginVertical: 10 }}>
+                <View style={styles.timerCircleContainer}>
+                  <Svg width={140} height={140} viewBox="0 0 140 140">
+                    <Circle cx="70" cy="70" r={radius} stroke="#333333" strokeWidth={strokeWidth} fill="none" />
+                    <Circle
+                      cx="70"
+                      cy="70"
+                      r={radius}
+                      stroke={focusRingColorSolid}
+                      strokeWidth={strokeWidth}
+                      strokeDasharray={circumference}
+                      strokeDashoffset={focusDashOffsetValue}
+                      strokeLinecap="round"
+                      fill="none"
+                      transform="rotate(-90 70 70)"
+                    />
+                  </Svg>
+                  <View style={styles.timerTextCenterContainer}>
+                    <Text style={[styles.timerDigitsText, isFocusCompleted && { color: '#ff2e2e' }]}>
+                      {focusTimeDisplay}
+                    </Text>
+                  </View>
+                </View>
+
+                {isFocusCompleted ? (
+                  <Text style={{ color: '#ff2e2e', fontWeight: '900', fontSize: 14, marginVertical: 12 }}>
+                    👑 SHADOW SOLDIER EXTRACTION SUCCESSFUL!
+                  </Text>
+                ) : null}
+
+                <TouchableOpacity 
+                  style={[styles.modalCancelFullBtn, isFocusCompleted && { borderColor: '#ffffff', backgroundColor: '#ff2e2e' }]} 
+                  onPress={stopFocusTimer}
+                >
+                  <Text style={[styles.cancelButtonText, isFocusCompleted && { color: '#ffffff' }]}>
+                    {isFocusCompleted ? 'RESET TIMER 🔄' : 'CANCEL TIMER'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            <TouchableOpacity style={{ marginTop: 12, alignItems: 'center' }} onPress={() => setFocusModalVisible(false)}>
+              <Text style={{ color: isFocusCompleted ? '#ffffff' : '#8b9dc3', fontWeight: '800' }}>CLOSE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ADD QUEST MODAL */}
       <Modal visible={isModalVisible} animationType="slide" transparent={true}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
@@ -534,12 +877,14 @@ export default function Dashboard() {
                 </View>
               )}
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={styles.cancelButton} onPress={() => setIsModalVisible(false)}>
+              {/* ACTION BUTTONS SIDE-BY-SIDE */}
+              <View style={styles.modalActionsRow}>
+                <TouchableOpacity style={styles.modalHalfCancelBtn} onPress={() => setIsModalVisible(false)}>
                   <Text style={styles.cancelButtonText}>CANCEL</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.addSubmitButton} onPress={handleAddNewTask} disabled={addingTask}>
-                  <Text style={styles.addSubmitText}>{addingTask ? 'ADDING...' : 'ADD QUEST'}</Text>
+
+                <TouchableOpacity style={styles.modalHalfAddBtn} onPress={handleAddNewTask} disabled={addingTask}>
+                  <Text style={styles.addSubmitText}>{addingTask ? 'ADDING...' : 'ADD QUEST ⚔️'}</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
@@ -579,11 +924,11 @@ export default function Dashboard() {
               Selected: {format(tempSelectedDate, 'yyyy-MM-dd')}
             </Text>
 
-            <View style={styles.calendarActions}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setCalendarVisible(false)}>
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity style={styles.modalHalfCancelBtn} onPress={() => setCalendarVisible(false)}>
                 <Text style={styles.cancelButtonText}>CLOSE</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.addSubmitButton} onPress={confirmDateSelection}>
+              <TouchableOpacity style={styles.modalHalfAddBtn} onPress={confirmDateSelection}>
                 <Text style={styles.addSubmitText}>SELECT DATE</Text>
               </TouchableOpacity>
             </View>
@@ -596,6 +941,13 @@ export default function Dashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#060919' },
+  loadingFullContainer: { flex: 1, backgroundColor: '#060919', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  loadingTitle: { fontSize: 20, fontWeight: '900', color: '#00d4ff', letterSpacing: 1.5, marginBottom: 20 },
+  timerCircleContainer: { width: 140, height: 140, justifyContent: 'center', alignItems: 'center', marginVertical: 12 },
+  timerTextCenterContainer: { position: 'absolute', justifyContent: 'center', alignItems: 'center' },
+  timerDigitsText: { color: '#ffffff', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
+  loadingSubText: { color: '#8b9dc3', fontSize: 12, textAlign: 'center', marginVertical: 16, paddingHorizontal: 20 },
+
   header: { padding: 20, paddingTop: 48, backgroundColor: 'rgba(0, 212, 255, 0.05)', borderBottomWidth: 2, borderBottomColor: '#00d4ff' },
   headerFullGlow: { borderBottomColor: '#00ff64', backgroundColor: 'rgba(0, 255, 100, 0.08)' },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
@@ -632,13 +984,18 @@ const styles = StyleSheet.create({
     borderColor: '#00ff64',
     shadowColor: '#00ff64',
   },
+  hudCardLocked: {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderColor: '#555555',
+    opacity: 0.7,
+  },
   hudCardSlashAnim: {
     borderColor: '#ffd700',
     transform: [{ scale: 1.02 }]
   },
   hudHeaderRow: {
     flexDirection: 'row',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
   },
@@ -672,6 +1029,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4
   },
+  tempBadgeLocked: {
+    color: '#8b9dc3',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
   hudQuestTitle: {
     fontSize: 17,
     fontWeight: '800',
@@ -699,7 +1060,7 @@ const styles = StyleSheet.create({
   },
   hudActionRow: {
     flexDirection: 'row',
-    justify: 'space-between',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
   hudActionButton: {
@@ -711,7 +1072,9 @@ const styles = StyleSheet.create({
   },
   killButton: { backgroundColor: '#00ff64' },
   defeatButton: { backgroundColor: '#ff6b6b' },
+  lockedButton: { backgroundColor: '#333333' },
   actionButtonText: { fontSize: 13, fontWeight: '900', color: '#000000', letterSpacing: 1 },
+  lockedButtonText: { color: '#8b9dc3' },
   deleteButton: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'rgba(255, 107, 107, 0.2)', borderRadius: 8 },
   deleteButtonText: { fontSize: 15 },
   taskTitleCompleted: { textDecorationLine: 'line-through', color: '#8b9dc3' },
@@ -723,12 +1086,20 @@ const styles = StyleSheet.create({
   floatingPlusText: { fontSize: 36, fontWeight: '900', color: '#0a0e27', marginTop: -4 },
   statsButton: { backgroundColor: '#00d4ff', padding: 16, margin: 16, borderRadius: 12 },
   statsButtonText: { fontSize: 16, fontWeight: '900', color: '#0a0e27', textAlign: 'center' },
-  loadingText: { fontSize: 18, color: '#ffffff', textAlign: 'center', marginTop: 100 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', padding: 20 },
-  modalContainer: { backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 20, maxHeight: '85%' },
-  modalTitle: { fontSize: 20, fontWeight: '900', color: '#00d4ff', marginBottom: 16, textAlign: 'center' },
+  
+  /* PLUS SELECTION MENU STYLING */
+  plusMenuContainer: { backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 20, width: '85%' },
+  plusOptionBtn: { backgroundColor: 'rgba(0, 212, 255, 0.1)', borderWidth: 1.5, borderColor: '#00d4ff', padding: 14, borderRadius: 10, marginBottom: 12, alignItems: 'center' },
+  plusOptionText: { color: '#00d4ff', fontWeight: '900', fontSize: 13, letterSpacing: 1 },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContainer: { width: '100%', backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 20, maxHeight: '85%' },
+  modalContainerCompletedRed: { backgroundColor: '#2a0808', borderColor: '#ff2e2e', shadowColor: '#ff2e2e', shadowRadius: 15, elevation: 12 },
+  modalTitle: { fontSize: 18, fontWeight: '900', color: '#00d4ff', marginBottom: 16, textAlign: 'center' },
+  modalTitleCompletedRed: { color: '#ff2e2e' },
   label: { fontSize: 12, fontWeight: '700', color: '#8b9dc3', marginTop: 10, marginBottom: 4 },
-  input: { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(0,212,255,0.3)', borderRadius: 8, color: '#fff', padding: 12, fontSize: 14 },
+  subLabel: { fontSize: 10, fontWeight: '700', color: '#8b9dc3', marginBottom: 2, textAlign: 'center' },
+  input: { backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: 'rgba(0,212,255,0.3)', borderRadius: 8, color: '#fff', padding: 12, fontSize: 14, textAlign: 'center' },
   datePickerTrigger: { backgroundColor: 'rgba(0, 212, 255, 0.12)', borderWidth: 1.5, borderColor: '#00d4ff', borderRadius: 8, padding: 14, alignItems: 'center', marginVertical: 4 },
   datePickerTriggerText: { color: '#00d4ff', fontWeight: '900', fontSize: 15 },
   typeSelectorContainer: { flexDirection: 'row', gap: 10, marginTop: 6 },
@@ -736,11 +1107,16 @@ const styles = StyleSheet.create({
   typeButtonActive: { backgroundColor: '#00d4ff', borderColor: '#00d4ff' },
   typeButtonText: { color: '#8b9dc3', fontWeight: '700', fontSize: 12 },
   typeTextActive: { color: '#0a0e27' },
-  modalActions: { flexDirection: 'row', gap: 12, marginTop: 24 },
-  cancelButton: { flex: 1, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#ff6b6b', alignItems: 'center' },
+
+  /* ACTION BUTTONS SIDE-BY-SIDE FIXED STYLING */
+  modalActionsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
+  modalHalfCancelBtn: { flex: 1, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#ff6b6b', alignItems: 'center', justifyContent: 'center' },
+  modalHalfAddBtn: { flex: 1, backgroundColor: '#00d4ff', padding: 14, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  modalCancelFullBtn: { padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#ff6b6b', alignItems: 'center', width: '100%' },
   cancelButtonText: { color: '#ff6b6b', fontWeight: '900' },
-  addSubmitButton: { flex: 1, backgroundColor: '#00d4ff', padding: 12, borderRadius: 8, alignItems: 'center' },
+  addSubmitButton: { backgroundColor: '#00d4ff', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 14 },
   addSubmitText: { color: '#0a0e27', fontWeight: '900' },
+
   calendarModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   calendarCard: { width: '100%', backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 16 },
   calendarTitle: { fontSize: 16, fontWeight: '900', color: '#00d4ff', textAlign: 'center', marginBottom: 12 },
