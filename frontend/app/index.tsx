@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, 
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Modal 
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Modal, Animated 
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -18,6 +19,11 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
+  // SERVER AUTO-WAKEUP & BREATHING TIMER STATES
+  const [serverAwake, setServerAwake] = useState(false);
+  const [serverPingTimer, setServerPingTimer] = useState(0);
+  const breathAnim = useRef(new Animated.Value(1)).current;
+
   // Forgot Password & Timer States
   const [forgotModalVisible, setForgotModalVisible] = useState(false);
   const [resetStep, setResetStep] = useState<1 | 2>(1);
@@ -28,9 +34,53 @@ export default function AuthScreen() {
   const [timer, setTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
 
+  // VIDEO ANIMATION STATE
+  const [showVideo, setShowVideo] = useState(false);
+
   useEffect(() => {
+    startServerWakeupPing();
+    startBreathingAnimation();
     checkExistingAuth();
   }, []);
+
+  // CYBER BREATHING PULSE ANIMATION LOGIC
+  const startBreathingAnimation = () => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(breathAnim, {
+          toValue: 1.25,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(breathAnim, {
+          toValue: 1.0,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  };
+
+  // INBUILT SERVER AUTO-WAKEUP SIGNAL LOGIC
+  const startServerWakeupPing = async () => {
+    let seconds = 0;
+    const interval = setInterval(() => {
+      seconds += 1;
+      setServerPingTimer(seconds);
+    }, 1000);
+
+    try {
+      const pingResponse = await axios.get("https://arise-presentation-api.onrender.com/", { timeout: 35000 });
+      if (pingResponse.data && pingResponse.data.status === 'Online') {
+        setServerAwake(true);
+      }
+    } catch (e) {
+      console.log('Server waking ping attempt finished.');
+      setServerAwake(true); // Fallback unlock
+    } finally {
+      clearInterval(interval);
+    }
+  };
 
   // 60-SECOND COUNTDOWN TIMER LOGIC
   useEffect(() => {
@@ -92,8 +142,7 @@ export default function AuthScreen() {
         await AsyncStorage.setItem('user_email', response.data.email);
         await AsyncStorage.setItem('username', response.data.username || 'Monarch');
 
-        Alert.alert('System Awoken ⚔️', response.data.message || 'Access Granted!');
-        router.replace('/dashboard');
+        setShowVideo(true);
       }
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || 'Authentication failed.';
@@ -101,6 +150,11 @@ export default function AuthScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVideoFinish = () => {
+    setShowVideo(false);
+    router.replace('/dashboard');
   };
 
   const handleRequestOTP = async () => {
@@ -187,6 +241,29 @@ export default function AuthScreen() {
     );
   }
 
+  // FULL SCREEN AWAKENING VIDEO TRANSITION
+  if (showVideo) {
+    return (
+      <View style={styles.videoContainer}>
+        <Video
+          source={require('../assets/awakening.mp4')}
+          style={styles.fullVideo}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay
+          isLooping={false}
+          onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+            if (status.isLoaded && status.didJustFinish) {
+              handleVideoFinish();
+            }
+          }}
+        />
+        <TouchableOpacity style={styles.skipButton} onPress={handleVideoFinish}>
+          <Text style={styles.skipText}>SKIP ⏩</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -195,6 +272,21 @@ export default function AuthScreen() {
           <Text style={styles.mainTitle}>ARISE PROTOCOL</Text>
           <Text style={styles.subTitle}>{isLogin ? 'ENTER SHADOW GATEWAY' : 'AWAKEN NEW MONARCH'}</Text>
         </View>
+
+        {/* SERVER WAKEUP BREATHING TIMER OVERLAY */}
+        {!serverAwake && (
+          <View style={styles.serverWakeupCard}>
+            <Animated.View style={[styles.breathingCircle, { transform: [{ scale: breathAnim }] }]}>
+              <Text style={styles.breathingTimerText}>{serverPingTimer}s</Text>
+            </Animated.View>
+            <Text style={styles.serverWakeupTitle}>⚡ AWAKENING SHADOW SERVER...</Text>
+            <Text style={styles.serverWakeupSub}>Connecting to Render cloud instance in background</Text>
+            
+            <TouchableOpacity style={styles.manualSkipBtn} onPress={() => setServerAwake(true)}>
+              <Text style={styles.manualSkipText}>ENTER GATEWAY ⚡</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.authCard}>
           {!isLogin && (
@@ -287,7 +379,6 @@ export default function AuthScreen() {
                   keyboardType="numeric"
                 />
 
-                {/* 60s TIMER & RESEND BTN */}
                 <View style={styles.timerRow}>
                   <Text style={styles.timerText}>
                     {canResend ? "Didn't receive OTP?" : `Resend in ${timer}s`}
@@ -339,10 +430,20 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, backgroundColor: '#0a0e27', justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#00d4ff', fontSize: 16, fontWeight: '800' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  headerContainer: { alignItems: 'center', marginBottom: 30 },
+  headerContainer: { alignItems: 'center', marginBottom: 20 },
   systemBadge: { color: '#ffd700', fontSize: 11, fontWeight: '900', letterSpacing: 2, marginBottom: 6 },
   mainTitle: { color: '#00d4ff', fontSize: 28, fontWeight: '900', letterSpacing: 2 },
   subTitle: { color: '#8b9dc3', fontSize: 13, fontWeight: '700', marginTop: 4, letterSpacing: 1 },
+  
+  /* BREATHING SERVER WAKEUP STYLING */
+  serverWakeupCard: { backgroundColor: 'rgba(0, 212, 255, 0.08)', borderWidth: 1.5, borderColor: '#00d4ff', borderRadius: 16, padding: 20, alignItems: 'center', marginBottom: 20 },
+  breathingCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'rgba(0, 212, 255, 0.2)', borderWidth: 2, borderColor: '#00d4ff', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  breathingTimerText: { color: '#00ff64', fontSize: 18, fontWeight: '900' },
+  serverWakeupTitle: { color: '#00d4ff', fontSize: 14, fontWeight: '900', letterSpacing: 1, marginBottom: 4 },
+  serverWakeupSub: { color: '#8b9dc3', fontSize: 11, textAlign: 'center', marginBottom: 12 },
+  manualSkipBtn: { backgroundColor: '#00d4ff', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
+  manualSkipText: { color: '#0a0e27', fontWeight: '900', fontSize: 12 },
+
   authCard: { backgroundColor: 'rgba(0, 212, 255, 0.04)', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 24 },
   label: { color: '#8b9dc3', fontSize: 12, fontWeight: '800', marginBottom: 6, marginTop: 12 },
   input: { backgroundColor: 'rgba(255, 255, 255, 0.05)', borderWidth: 1, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 10, color: '#fff', padding: 14, fontSize: 14 },
@@ -360,5 +461,9 @@ const styles = StyleSheet.create({
   timerText: { color: '#8b9dc3', fontSize: 12, fontWeight: '700' },
   resendBtn: { paddingVertical: 4 },
   resendBtnText: { color: '#00d4ff', fontSize: 12, fontWeight: '900' },
-  resendBtnDisabled: { color: '#555555' }
+  resendBtnDisabled: { color: '#555555' },
+  videoContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
+  fullVideo: { width: '100%', height: '100%' },
+  skipButton: { position: 'absolute', top: 50, right: 20, backgroundColor: 'rgba(0, 212, 255, 0.3)', borderWidth: 1, borderColor: '#00d4ff', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  skipText: { color: '#ffffff', fontWeight: '900', fontSize: 12 }
 });

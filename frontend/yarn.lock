@@ -3613,6 +3613,11 @@ expo-asset@~12.0.12:
     "@expo/image-utils" "^0.8.8"
     expo-constants "~18.0.12"
 
+expo-av@~16.0.8:
+  version "16.0.8"
+  resolved "https://registry.npmjs.org/expo-av/-/expo-av-16.0.8.tgz"
+  integrity sha512-cmVPftGR/ca7XBgs7R6ky36lF3OC0/MM/lpgX/yXqfv0jASTsh7AYX9JxHCwFmF+Z6JEB1vne9FDx4GiLcGreQ==
+
 expo-blur@~15.0.8:
   version "15.0.8"
   resolved "https://registry.npmjs.org/expo-blur/-/expo-blur-15.0.8.tgz"

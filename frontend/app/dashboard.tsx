@@ -8,6 +8,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays } from 'date-fns';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 
 const { width } = Dimensions.get('window');
 
@@ -53,6 +54,10 @@ export default function Dashboard() {
   const [animatingTask, setAnimatingTask] = useState<number | null>(null);
   const [slashAnim] = useState(new Animated.Value(0));
 
+  // RANK ANIMATION VIDEO STATES
+  const [rankVideoSource, setRankVideoSource] = useState<any>(null);
+  const [showRankVideo, setShowRankVideo] = useState<boolean>(false);
+
   // Add Task Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
@@ -70,6 +75,8 @@ export default function Dashboard() {
   const [addingTask, setAddingTask] = useState(false);
 
   useEffect(() => {
+    // Render Silent Wakeup Ping Trigger on App Load
+    axios.get("https://arise-presentation-api.onrender.com/").catch(() => {});
     initializeUserAndLoadData();
   }, []);
 
@@ -94,12 +101,59 @@ export default function Dashboard() {
         if (response.data.username) setUserName(response.data.username);
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
-          setToday(response.data.today);
+          
+          // DAILY AUTO-RESET CHECK (Verifies today's date vs loaded data date)
+          const todayDateStr = format(new Date(), 'yyyy-MM-dd');
+          const loadedDateStr = response.data.today.date;
+
+          let updatedTodayData = response.data.today;
+          if (loadedDateStr && loadedDateStr !== todayDateStr) {
+            // Uncheck tasks if date changed
+            updatedTodayData.tasks = updatedTodayData.tasks.map((t: Task) => ({
+              ...t,
+              completed: false
+            }));
+            updatedTodayData.completion_percentage = 0;
+            updatedTodayData.date = todayDateStr;
+          }
+
+          setToday(updatedTodayData);
+
+          // CHECK RANK ANIMATION (ONLY TRIGGER ONCE PER DAY PER RANK)
+          const currentRank = response.data.challenge.current_rank;
+          await checkAndPlayRankAnimationOnce(currentRank, todayDateStr);
         }
       }
     } catch (error) {
       console.error(error);
     }
+  };
+
+  // TRIGGER RANK ANIMATION ONLY ONCE PER DAY
+  const checkAndPlayRankAnimationOnce = async (rank: string, todayDateStr: string) => {
+    const playKey = `played_rank_${rank}_${todayDateStr}`;
+    const alreadyPlayed = await AsyncStorage.getItem(playKey);
+
+    if (alreadyPlayed === 'true') return; // Do not replay if already played today
+
+    if (rank === '1%') {
+      setRankVideoSource(require('../assets/rank_1percent.mp4'));
+      setShowRankVideo(true);
+      await AsyncStorage.setItem(playKey, 'true');
+    } else if (rank === 'S') {
+      setRankVideoSource(require('../assets/rank_s.mp4'));
+      setShowRankVideo(true);
+      await AsyncStorage.setItem(playKey, 'true');
+    } else if (rank === 'A') {
+      setRankVideoSource(require('../assets/rank_a.mp4'));
+      setShowRankVideo(true);
+      await AsyncStorage.setItem(playKey, 'true');
+    }
+  };
+
+  const handleRankVideoFinish = () => {
+    setShowRankVideo(false);
+    setRankVideoSource(null);
   };
 
   const onRefresh = useCallback(() => {
@@ -121,7 +175,6 @@ export default function Dashboard() {
     ]);
   };
 
-  // TASK KILL WITH ANIMATION SEQUENCE
   const handleTaskPress = async (taskIndex: number, currentStatus: boolean) => {
     setAnimatingTask(taskIndex);
 
@@ -281,9 +334,32 @@ export default function Dashboard() {
 
   const isHundredPercent = today.completion_percentage >= 100;
 
+  // FULL SCREEN RANK ANIMATION VIDEO OVERLAY
+  if (showRankVideo && rankVideoSource) {
+    return (
+      <View style={styles.videoOverlayContainer}>
+        <Video
+          source={rankVideoSource}
+          style={styles.fullVideo}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay
+          isLooping={false}
+          onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+            if (status.isLoaded && status.didJustFinish) {
+              handleRankVideoFinish();
+            }
+          }}
+        />
+        <TouchableOpacity style={styles.skipButton} onPress={handleRankVideoFinish}>
+          <Text style={styles.skipText}>SKIP ⏩</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION WITH 100% GLOW AMBIANCE */}
+      {/* HEADER SECTION */}
       <View style={[styles.header, isHundredPercent && styles.headerFullGlow]}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -322,7 +398,7 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* TASKS LIST WITH SLASH ANIMATION */}
+      {/* TASKS LIST WITH FULLY SEAMLESS CARD DESIGN */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -336,39 +412,51 @@ export default function Dashboard() {
               <Animated.View 
                 key={index} 
                 style={[
-                  styles.taskCard, 
-                  task.completed ? styles.taskCardCompleted : null,
-                  isAnimating ? styles.taskCardSlashAnim : null
+                  styles.systemHudCard, 
+                  task.completed ? styles.hudCardCompleted : null,
+                  isAnimating ? styles.hudCardSlashAnim : null
                 ]}
               >
-                <View style={styles.taskHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.taskTime}>{task.time}</Text>
-                    {isTemp && <Text style={styles.tempBadge}>⏳ TEMP QUEST</Text>}
+                {/* HUD Header Tag */}
+                <View style={styles.hudHeaderRow}>
+                  <View style={[styles.hudInfoBadge, task.completed && styles.hudInfoBadgeCompleted]}>
+                    <Text style={[styles.hudInfoText, task.completed && styles.hudInfoTextCompleted]}>
+                      ⓘ QUEST INFO
+                    </Text>
                   </View>
-                  <View style={styles.taskActions}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, task.completed ? styles.killButton : styles.defeatButton]}
-                      onPress={() => handleTaskPress(index, task.completed)}
-                    >
-                      <Text style={styles.actionButtonText}>
-                        {task.completed ? '⚔️ KILL' : '💀 DEFEAT'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity 
-                      style={styles.deleteButton} 
-                      onPress={() => handleDeleteTask(index)}
-                    >
-                      <Text style={styles.deleteButtonText}>🗑️</Text>
-                    </TouchableOpacity>
-                  </View>
+                  {isTemp && <Text style={styles.tempBadge}>⏳ TEMP QUEST</Text>}
                 </View>
 
-                <Text style={[styles.taskTitle, task.completed ? styles.taskTitleCompleted : null]}>
+                {/* Quest Title & Time */}
+                <Text style={[styles.hudQuestTitle, task.completed ? styles.taskTitleCompleted : null]}>
                   {task.task}
                 </Text>
-                <Text style={styles.taskDuration}>{task.duration} mins</Text>
+
+                <View style={styles.hudMetaRow}>
+                  <Text style={[styles.hudTimeText, task.completed && styles.hudTimeTextCompleted]}>
+                    ⏰ {task.time}
+                  </Text>
+                  <Text style={styles.hudDurationText}>({task.duration} mins)</Text>
+                </View>
+
+                {/* Bottom Action Row */}
+                <View style={styles.hudActionRow}>
+                  <TouchableOpacity
+                    style={[styles.hudActionButton, task.completed ? styles.killButton : styles.defeatButton]}
+                    onPress={() => handleTaskPress(index, task.completed)}
+                  >
+                    <Text style={styles.actionButtonText}>
+                      {task.completed ? '⚔️ COMPLETED' : '💀 DEFEAT'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    style={styles.deleteButton} 
+                    onPress={() => handleDeleteTask(index)}
+                  >
+                    <Text style={styles.deleteButtonText}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
               </Animated.View>
             );
           })
@@ -507,7 +595,7 @@ export default function Dashboard() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0e27' },
+  container: { flex: 1, backgroundColor: '#060919' },
   header: { padding: 20, paddingTop: 48, backgroundColor: 'rgba(0, 212, 255, 0.05)', borderBottomWidth: 2, borderBottomColor: '#00d4ff' },
   headerFullGlow: { borderBottomColor: '#00ff64', backgroundColor: 'rgba(0, 255, 100, 0.08)' },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
@@ -525,22 +613,109 @@ const styles = StyleSheet.create({
   dateText: { fontSize: 15, color: '#8b9dc3', marginBottom: 2 },
   tasksList: { flex: 1 },
   tasksContent: { padding: 16, paddingBottom: 80 },
-  taskCard: { backgroundColor: 'rgba(0, 212, 255, 0.05)', borderWidth: 2, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 12, padding: 16, marginBottom: 12 },
-  taskCardCompleted: { backgroundColor: 'rgba(0, 255, 100, 0.05)', borderColor: 'rgba(0, 255, 100, 0.5)' },
-  taskCardSlashAnim: { borderColor: '#ffd700', transform: [{ scale: 1.02 }] },
-  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  taskTime: { fontSize: 15, fontWeight: '700', color: '#00d4ff' },
-  tempBadge: { fontSize: 10, fontWeight: '900', color: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.2)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  taskActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  actionButton: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6 },
+
+  systemHudCard: {
+    backgroundColor: '#082943',
+    borderWidth: 2,
+    borderColor: '#00d4ff',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: '#00d4ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  hudCardCompleted: {
+    backgroundColor: '#0e390e',
+    borderColor: '#00ff64',
+    shadowColor: '#00ff64',
+  },
+  hudCardSlashAnim: {
+    borderColor: '#ffd700',
+    transform: [{ scale: 1.02 }]
+  },
+  hudHeaderRow: {
+    flexDirection: 'row',
+    justify: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  hudInfoBadge: {
+    backgroundColor: 'rgba(0, 212, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 212, 255, 0.5)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  hudInfoBadgeCompleted: {
+    backgroundColor: 'rgba(0, 255, 100, 0.12)',
+    borderColor: 'rgba(0, 255, 100, 0.5)',
+  },
+  hudInfoText: {
+    color: '#00d4ff',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  hudInfoTextCompleted: {
+    color: '#00ff64',
+  },
+  tempBadge: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#ffaa00',
+    backgroundColor: 'rgba(255, 170, 0, 0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4
+  },
+  hudQuestTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#ffffff',
+    marginBottom: 6,
+    letterSpacing: 0.3,
+  },
+  hudMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  hudTimeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#00d4ff',
+  },
+  hudTimeTextCompleted: {
+    color: '#00ff64',
+  },
+  hudDurationText: {
+    fontSize: 13,
+    color: '#8b9dc3',
+  },
+  hudActionRow: {
+    flexDirection: 'row',
+    justify: 'space-between',
+    alignItems: 'center',
+  },
+  hudActionButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginRight: 10,
+  },
   killButton: { backgroundColor: '#00ff64' },
   defeatButton: { backgroundColor: '#ff6b6b' },
-  actionButtonText: { fontSize: 12, fontWeight: '900', color: '#000000' },
-  deleteButton: { paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(255, 107, 107, 0.2)', borderRadius: 6 },
-  deleteButtonText: { fontSize: 14 },
-  taskTitle: { fontSize: 16, fontWeight: '600', color: '#ffffff', marginBottom: 4 },
+  actionButtonText: { fontSize: 13, fontWeight: '900', color: '#000000', letterSpacing: 1 },
+  deleteButton: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: 'rgba(255, 107, 107, 0.2)', borderRadius: 8 },
+  deleteButtonText: { fontSize: 15 },
   taskTitleCompleted: { textDecorationLine: 'line-through', color: '#8b9dc3' },
-  taskDuration: { fontSize: 12, color: '#8b9dc3' },
+
   emptyContainer: { padding: 40, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { color: '#00d4ff', fontSize: 18, fontWeight: '900' },
   emptySubText: { color: '#8b9dc3', fontSize: 13, textAlign: 'center', marginTop: 8 },
@@ -582,5 +757,11 @@ const styles = StyleSheet.create({
   calendarDayTextSelected: { color: '#0a0e27', fontWeight: '900' },
   calendarDayTextDisabled: { color: '#8b9dc3' },
   selectedDatePreview: { color: '#00d4ff', textAlign: 'center', fontWeight: '800', marginTop: 12, fontSize: 13 },
-  calendarActions: { flexDirection: 'row', gap: 12, marginTop: 16 }
+  calendarActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
+
+  /* FULL SCREEN RANK VIDEO OVERLAY STYLING */
+  videoOverlayContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
+  fullVideo: { width: '100%', height: '100%' },
+  skipButton: { position: 'absolute', top: 50, right: 20, backgroundColor: 'rgba(0, 212, 255, 0.3)', borderWidth: 1, borderColor: '#00d4ff', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  skipText: { color: '#ffffff', fontWeight: '900', fontSize: 12 }
 });

@@ -137,7 +137,7 @@ def send_email_otp_brevo(to_email: str, otp_code: str):
     except Exception as e:
         print(f"Brevo API Dispatch Error: {e}")
 
-# --- HEALTH CHECK ---
+# --- HEALTH CHECK & WAKE-UP SIGNAL ---
 @app.get("/")
 async def health():
     try:
@@ -310,6 +310,33 @@ async def get_current_status(user_id: str = "default_user"):
             "agility": 10 + int(total_tasks_done * 1.0),
             "recovery": 10 + int(total_tasks_done * 0.8)
         }
+
+        # GENERATE FORMATTED HISTORY LIST
+        formatted_history = []
+        today_date = ist_now.date()
+        range_start = start_date.date()
+        current_iter_date = range_start
+        
+        while current_iter_date <= today_date:
+            date_str = current_iter_date.strftime("%Y-%m-%d")
+            day_name = current_iter_date.strftime("%A")
+            day_num = max(1, (current_iter_date - range_start).days + 1)
+            
+            if day_name == "Sunday":
+                c_percent = 100.0
+            elif date_str in history and isinstance(history[date_str], list):
+                tasks_done_len = len(history[date_str])
+                c_percent = (tasks_done_len / total_tasks_count * 100) if total_tasks_count > 0 else 0.0
+            else:
+                c_percent = 0.0
+                
+            formatted_history.append({
+                "day_number": day_num,
+                "date": date_str,
+                "day_of_week": day_name,
+                "completion_percentage": c_percent
+            })
+            current_iter_date += timedelta(days=1)
         
         return {
             "active": True,
@@ -328,7 +355,8 @@ async def get_current_status(user_id: str = "default_user"):
                 "tasks": tasks_response,
                 "completion_percentage": completion_percentage,
                 "is_sunday": is_sunday
-            }
+            },
+            "history": formatted_history
         }
     except Exception as e:
         print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")

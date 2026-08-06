@@ -46,6 +46,17 @@ const RANK_COLORS: { [key: string]: string } = {
   'E': '#666666',
 };
 
+// HELPER TO CALCULATE RANK FROM DAILY COMPLETION PERCENTAGE
+const calculateDayRank = (percentage: number): string => {
+  if (percentage >= 100) return '1%';
+  if (percentage >= 90) return 'S';
+  if (percentage >= 85) return 'A';
+  if (percentage >= 75) return 'B';
+  if (percentage >= 65) return 'C';
+  if (percentage >= 50) return 'D';
+  return 'E';
+};
+
 export default function StatsScreen() {
   const router = useRouter();
   const [challenge, setChallenge] = useState<ChallengeData | null>(null);
@@ -58,7 +69,6 @@ export default function StatsScreen() {
 
   const loadStats = async () => {
     try {
-      // DYNAMIC USER ISOLATION FIX
       const storedUserId = await AsyncStorage.getItem('user_id');
       const activeUserId = storedUserId || 'default_user';
 
@@ -73,14 +83,18 @@ export default function StatsScreen() {
         let historyList: DayHistory[] = [];
 
         if (Array.isArray(response.data.history) && response.data.history.length > 0) {
-          historyList = response.data.history;
+          historyList = response.data.history.map((h: any) => ({
+            ...h,
+            rank: calculateDayRank(h.completion_percentage || 0)
+          }));
         } else {
           for (let d = 1; d <= currentDay; d++) {
+            const compPercent = d === currentDay ? (response.data.today?.completion_percentage || 0) : 0;
             historyList.push({
               day_number: d,
               date: new Date(Date.now() - (currentDay - d) * 86400000).toISOString(),
-              completion_percentage: d === currentDay ? (response.data.today?.completion_percentage || 0) : 0,
-              rank: response.data.challenge?.current_rank || 'F',
+              completion_percentage: compPercent,
+              rank: calculateDayRank(compPercent),
               tasks: response.data.today?.tasks || []
             });
           }
@@ -112,8 +126,9 @@ export default function StatsScreen() {
       const x = history.length === 1 
         ? svgWidth / 2 
         : padding + (idx / (history.length - 1)) * (svgWidth - padding * 2);
-      const y = getRankYPosition(item.rank || 'E', svgHeight, padding);
-      return { x, y, day: item.day_number, rank: item.rank || 'E' };
+      const computedRank = calculateDayRank(item.completion_percentage || 0);
+      const y = getRankYPosition(computedRank, svgHeight, padding);
+      return { x, y, day: item.day_number, rank: computedRank };
     });
 
     let dPath = `M ${points[0].x} ${points[0].y}`;
@@ -197,6 +212,9 @@ export default function StatsScreen() {
     );
   }
 
+  // REVERSE HISTORY LIST SEQUENCE (DAY 4 -> DAY 3 -> DAY 2 -> DAY 1)
+  const reversedHistory = history ? [...history].reverse() : [];
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -258,8 +276,8 @@ export default function StatsScreen() {
 
         <Text style={styles.sectionTitle}>📜 RECENT HISTORY</Text>
         <View style={styles.historyListContainer}>
-          {history && history.length > 0 ? (
-            history.map((dayItem, index) => {
+          {reversedHistory && reversedHistory.length > 0 ? (
+            reversedHistory.map((dayItem, index) => {
               const compPercent = dayItem.completion_percentage || 0;
               return (
                 <View key={index} style={styles.historyCard}>
