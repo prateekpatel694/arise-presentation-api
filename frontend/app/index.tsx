@@ -34,7 +34,7 @@ export default function AuthScreen() {
   const [timer, setTimer] = useState(60);
   const [canResend, setCanResend] = useState(false);
 
-  // VIDEO ANIMATION STATE
+  // VIDEO ANIMATION STATE (INDEX LOGIN AWAKENING)
   const [showVideo, setShowVideo] = useState(false);
 
   useEffect(() => {
@@ -100,7 +100,8 @@ export default function AuthScreen() {
     try {
       const token = await AsyncStorage.getItem('user_token');
       if (token) {
-        router.replace('/dashboard');
+        // Direct entry without index login -> Pass flag to trigger direct dashboard video
+        router.replace({ pathname: '/dashboard', params: { directEntry: 'true' } });
       }
     } catch (e) {
       console.error(e);
@@ -142,7 +143,7 @@ export default function AuthScreen() {
         await AsyncStorage.setItem('user_email', response.data.email);
         await AsyncStorage.setItem('username', response.data.username || 'Monarch');
 
-        setShowVideo(true);
+        setShowVideo(true); // Show awakening.mp4 for index login path
       }
     } catch (error: any) {
       const errorMsg = error.response?.data?.detail || 'Authentication failed.';
@@ -241,7 +242,7 @@ export default function AuthScreen() {
     );
   }
 
-  // FULL SCREEN AWAKENING VIDEO TRANSITION
+  // FULL SCREEN AWAKENING VIDEO TRANSITION (INDEX LOGIN PATH)
   if (showVideo) {
     return (
       <View style={styles.videoContainer}>
@@ -340,7 +341,7 @@ export default function AuthScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.toggleBtn} onPress={() => setIsLogin(!isLogin)}>
-            <Text style={styles.toggleText}>{isLogin ? "New Player? Awaken Account" : "Already Awakened? Login Here"}</Text>
+            <Text style={styles.toggleText}>{isLogin ? "New Hunter? Awaken System" : "Already Awakened? Login Here"}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

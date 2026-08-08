@@ -257,7 +257,7 @@ async def reset_password(req: VerifyResetReq):
 
     return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
-# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT-ONLY PERCENTAGE CALCULATION) ---
+# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT TASKS EQUAL 100% DIVISION) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -289,7 +289,6 @@ async def get_current_status(user_id: str = "default_user"):
 
         tasks_response = []
         
-        # COUNTERS SPECIFICALLY FOR PERMANENT TASKS PERCENTAGE CALCULATION
         permanent_total_count = 0
         permanent_completed_count = 0
 
@@ -307,13 +306,11 @@ async def get_current_status(user_id: str = "default_user"):
                 elif t_start and today_str < t_start:
                     is_locked = True
 
-            # Hide expired temporary tasks
             if is_expired:
                 continue
 
             is_done = idx in completed_today_indices
 
-            # ONLY PERMANENT TASKS COUNT TOWARDS DAILY COMPLETION PERCENTAGE & RANK
             if task_type == "permanent":
                 permanent_total_count += 1
                 if is_done:
@@ -330,9 +327,9 @@ async def get_current_status(user_id: str = "default_user"):
                 "is_locked": is_locked
             })
         
-        # PERCENTAGE CALCULATED STRICTLY FROM PERMANENT TASKS
+        # STRICT EQUAL 100% DIVISION AMONG PERMANENT TASKS
         completion_percentage = 100.0 if is_sunday else (
-            (permanent_completed_count / permanent_total_count * 100) if permanent_total_count > 0 else 0.0
+            (permanent_completed_count / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
         )
         
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
@@ -360,13 +357,12 @@ async def get_current_status(user_id: str = "default_user"):
             if day_name == "Sunday":
                 c_percent = 100.0
             elif date_str in history and isinstance(history[date_str], list):
-                # Count completed permanent tasks for historical date
                 history_done_indices = history[date_str]
                 perm_done_hist = 0
                 for h_idx in history_done_indices:
                     if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
                         perm_done_hist += 1
-                c_percent = (perm_done_hist / permanent_total_count * 100) if permanent_total_count > 0 else 0.0
+                c_percent = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
             else:
                 c_percent = 0.0
                 
@@ -496,6 +492,10 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         if not isinstance(history_dict, dict): history_dict = {}
             
         user_tasks = user.get("tasks", [])
+        
+        # Calculate total permanent tasks count
+        permanent_total_count = sum(1 for t in user_tasks if t.get("task_type", "permanent") == "permanent")
+
         formatted_history = []
         ist_now = get_ist_time()
         today_date = ist_now.date()
@@ -520,8 +520,12 @@ async def get_history(user_id: str = "default_user", days: int = 30):
             if day_name == "Sunday":
                 completion_percentage = 100.0
             elif date_str in history_dict and isinstance(history_dict[date_str], list):
-                tasks = history_dict[date_str]
-                completion_percentage = (len(tasks) / len(user_tasks)) * 100 if len(user_tasks) > 0 else 0.0
+                history_done_indices = history_dict[date_str]
+                perm_done_hist = 0
+                for h_idx in history_done_indices:
+                    if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
+                        perm_done_hist += 1
+                completion_percentage = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
             else:
                 completion_percentage = 0.0
                 
@@ -535,4 +539,4 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         
         return {"history": formatted_history}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))         

@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, 
   Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Vibration 
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameMonth, isSameDay, addDays } from 'date-fns';
@@ -49,6 +49,7 @@ interface Challenge {
 
 export default function Dashboard() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const [userId, setUserId] = useState<string>('default_user');
   const [userName, setUserName] = useState<string>('MONARCH');
   const [challenge, setChallenge] = useState<Challenge | null>(null);
@@ -56,6 +57,9 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [animatingTask, setAnimatingTask] = useState<number | null>(null);
   const [slashAnim] = useState(new Animated.Value(0));
+
+  // ONE-TIME APP RESTART DIRECT ENTRY VIDEO STATE
+  const [showDirectVideo, setShowDirectVideo] = useState(false);
 
   // AWAKENING LOADING TIMER STATES
   const [timerSeconds, setTimerSeconds] = useState(50);
@@ -76,11 +80,11 @@ export default function Dashboard() {
   const [taskDuration, setTaskDuration] = useState('30');
   const [taskType, setTaskType] = useState<'permanent' | 'temporary'>('permanent');
 
-  // FOCUS TIMER MODAL & HH:MM:SS STATES
+  // FOCUS TIMER MODAL & HH:MM:SS PLACEHOLDER STATES
   const [focusModalVisible, setFocusModalVisible] = useState(false);
-  const [inputHours, setInputHours] = useState('00');
-  const [inputMins, setInputMins] = useState('25');
-  const [inputSecs, setInputSecs] = useState('00');
+  const [inputHours, setInputHours] = useState('');
+  const [inputMins, setInputMins] = useState('');
+  const [inputSecs, setInputSecs] = useState('');
   const [focusRemainingSecs, setFocusRemainingSecs] = useState<number | null>(null);
   const [focusTotalSecs, setFocusTotalSecs] = useState<number>(1500);
   const [focusRunning, setFocusRunning] = useState(false);
@@ -100,9 +104,28 @@ export default function Dashboard() {
   const [addingTask, setAddingTask] = useState(false);
 
   useEffect(() => {
+    checkDirectEntryVideoPlayability();
     checkServerAwakeCache();
     initializeUserAndLoadData();
   }, []);
+
+  const checkDirectEntryVideoPlayability = async () => {
+    try {
+      if (params.directEntry === 'true') {
+        const hasPlayed = await AsyncStorage.getItem('has_played_direct_video');
+        if (hasPlayed !== 'true') {
+          setShowDirectVideo(true);
+          await AsyncStorage.setItem('has_played_direct_video', 'true');
+        }
+      }
+    } catch (e) {
+      console.log('Direct video check handled.');
+    }
+  };
+
+  const handleDirectVideoFinish = () => {
+    setShowDirectVideo(false);
+  };
 
   const checkServerAwakeCache = async () => {
     try {
@@ -117,7 +140,6 @@ export default function Dashboard() {
     }
   };
 
-  // 50-SECOND CIRCULAR LOADING TIMER LOGIC
   const start50sLoadingTimer = () => {
     try {
       Animated.timing(strokeAnim, {
@@ -162,7 +184,6 @@ export default function Dashboard() {
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
           
-          // DAILY AUTO-RESET CHECK
           const todayDateStr = format(new Date(), 'yyyy-MM-dd');
           const loadedDateStr = response.data.today.date;
 
@@ -180,7 +201,6 @@ export default function Dashboard() {
           setServerAwakeSignal(true);
           await AsyncStorage.setItem('server_is_awake', 'true');
 
-          // CHECK RANK ANIMATION
           const currentRank = response.data.challenge.current_rank;
           await checkAndPlayRankAnimationOnce(currentRank, todayDateStr);
         }
@@ -289,7 +309,6 @@ export default function Dashboard() {
     ]);
   };
 
-  // HIGH-FREQUENCY 60 FPS SMOOTH ANIMATION LOOP
   useEffect(() => {
     const updateSmoothTimer = () => {
       if (focusRunning && focusEndTimeRef.current !== null && focusTotalSecs > 0) {
@@ -471,7 +490,6 @@ export default function Dashboard() {
     return <View>{rows}</View>;
   };
 
-  // CIRCULAR SVG CALCULATION FOR AWAKENING LOADING
   const radius = 60;
   const strokeWidth = 8;
   const circumference = 2 * Math.PI * radius;
@@ -481,14 +499,34 @@ export default function Dashboard() {
   });
   const formattedTime = `00:${timerSeconds < 10 ? `0${timerSeconds}` : timerSeconds}`;
 
-  // CONTINUOUS 60FPS FLUID DASH OFFSET & COLOR CALCULATION
   const focusDashOffsetValue = (1 - smoothProgressRatio) * circumference;
 
   const focusRingColorSolid = isFocusCompleted 
     ? '#ff2e2e' 
     : (smoothProgressRatio > 0.6 ? '#ff2e2e' : (smoothProgressRatio > 0.3 ? '#ffaa00' : '#00d4ff'));
 
-  // LOADING STATE WITH 50S CIRCULAR TIMER OVERLAY
+  if (showDirectVideo) {
+    return (
+      <View style={styles.videoOverlayContainer}>
+        <Video
+          source={require('../assets/dashboard_awakening.mp4')}
+          style={styles.fullVideo}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay
+          isLooping={false}
+          onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+            if (status.isLoaded && status.didJustFinish) {
+              handleDirectVideoFinish();
+            }
+          }}
+        />
+        <TouchableOpacity style={styles.skipButton} onPress={handleDirectVideoFinish}>
+          <Text style={styles.skipText}>SKIP ⏩</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   if ((!challenge || !today) && !serverAwakeSignal) {
     return (
       <View style={styles.loadingFullContainer}>
@@ -520,7 +558,6 @@ export default function Dashboard() {
     );
   }
 
-  // FALLBACK LOADING WHILE CACHED LOAD
   if (!challenge || !today) {
     return (
       <View style={styles.loadingFullContainer}>
@@ -531,7 +568,6 @@ export default function Dashboard() {
 
   const isHundredPercent = today.completion_percentage >= 100;
 
-  // FULL SCREEN RANK ANIMATION VIDEO OVERLAY
   if (showRankVideo && rankVideoSource) {
     return (
       <View style={styles.videoOverlayContainer}>
@@ -554,7 +590,6 @@ export default function Dashboard() {
     );
   }
 
-  // FORMAT HH:MM:SS FOR DISPLAY
   const currentFocusHours = focusRemainingSecs !== null ? Math.floor(focusRemainingSecs / 3600) : 0;
   const currentFocusMins = focusRemainingSecs !== null ? Math.floor((focusRemainingSecs % 3600) / 60) : 0;
   const currentFocusSecs = focusRemainingSecs !== null ? focusRemainingSecs % 60 : 0;
@@ -562,7 +597,6 @@ export default function Dashboard() {
 
   return (
     <View style={styles.container}>
-      {/* HEADER SECTION */}
       <View style={[styles.header, isHundredPercent && styles.headerFullGlow]}>
         <View style={styles.headerTop}>
           <View style={[styles.rankBadge, { borderColor: getRankColor(challenge.current_rank) }]}>
@@ -601,7 +635,6 @@ export default function Dashboard() {
         </View>
       </View>
 
-      {/* TASKS LIST */}
       <ScrollView
         style={styles.tasksList}
         contentContainerStyle={styles.tasksContent}
@@ -680,7 +713,6 @@ export default function Dashboard() {
         )}
       </ScrollView>
 
-      {/* FLOATING PLUS BUTTON */}
       <TouchableOpacity 
         style={styles.floatingPlusButton} 
         onPress={() => setPlusModalVisible(true)}
@@ -692,7 +724,6 @@ export default function Dashboard() {
         <Text style={styles.statsButtonText}>VIEW STATS & PROGRESS</Text>
       </TouchableOpacity>
 
-      {/* PLUS MENU SELECTION MODAL */}
       <Modal visible={plusMenuVisible} animationType="fade" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.plusMenuContainer}>
@@ -725,7 +756,6 @@ export default function Dashboard() {
         </View>
       </Modal>
 
-      {/* SHADOW FOCUS TIMER MODAL */}
       <Modal visible={focusModalVisible} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContainer, isFocusCompleted && styles.modalContainerCompletedRed]}>
@@ -742,6 +772,8 @@ export default function Dashboard() {
                     <TextInput
                       style={styles.input}
                       keyboardType="numeric"
+                      placeholder="00"
+                      placeholderTextColor="#666"
                       value={inputHours}
                       onChangeText={setInputHours}
                       maxLength={2}
@@ -752,6 +784,8 @@ export default function Dashboard() {
                     <TextInput
                       style={styles.input}
                       keyboardType="numeric"
+                      placeholder="00"
+                      placeholderTextColor="#666"
                       value={inputMins}
                       onChangeText={setInputMins}
                       maxLength={2}
@@ -762,6 +796,8 @@ export default function Dashboard() {
                     <TextInput
                       style={styles.input}
                       keyboardType="numeric"
+                      placeholder="00"
+                      placeholderTextColor="#666"
                       value={inputSecs}
                       onChangeText={setInputSecs}
                       maxLength={2}
@@ -822,7 +858,6 @@ export default function Dashboard() {
         </View>
       </Modal>
 
-      {/* ADD QUEST MODAL */}
       <Modal visible={isModalVisible} animationType="slide" transparent={true}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
@@ -877,7 +912,6 @@ export default function Dashboard() {
                 </View>
               )}
 
-              {/* ACTION BUTTONS SIDE-BY-SIDE */}
               <View style={styles.modalActionsRow}>
                 <TouchableOpacity style={styles.modalHalfCancelBtn} onPress={() => setIsModalVisible(false)}>
                   <Text style={styles.cancelButtonText}>CANCEL</Text>
@@ -892,7 +926,6 @@ export default function Dashboard() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* POPUP VISUAL CALENDAR MODAL */}
       <Modal visible={calendarVisible} animationType="fade" transparent={true}>
         <View style={styles.calendarModalOverlay}>
           <View style={styles.calendarCard}>
