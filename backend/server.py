@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import motor.motor_asyncio
 import bcrypt
 import jwt
@@ -76,7 +76,7 @@ class CustomTaskReq(BaseModel):
 
 # --- HELPER FUNCTIONS ---
 def get_ist_time():
-    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
 
 def calculate_rank(percentage):
     if percentage >= 97: return "1%"
@@ -98,7 +98,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=30)
+    expire = datetime.now(timezone.utc) + timedelta(days=30)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
@@ -257,7 +257,7 @@ async def reset_password(req: VerifyResetReq):
 
     return {"success": True, "message": "Password reset successful! You can now login with your new password."}
 
-# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT TASKS EQUAL 100% DIVISION) ---
+# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT EQUAL 100% DIVISION) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -289,6 +289,7 @@ async def get_current_status(user_id: str = "default_user"):
 
         tasks_response = []
         
+        # EXACT EQUAL DIVISION AMONG ALL PERMANENT TASKS
         permanent_total_count = 0
         permanent_completed_count = 0
 
@@ -327,10 +328,14 @@ async def get_current_status(user_id: str = "default_user"):
                 "is_locked": is_locked
             })
         
-        # STRICT EQUAL 100% DIVISION AMONG PERMANENT TASKS
-        completion_percentage = 100.0 if is_sunday else (
-            (permanent_completed_count / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
-        )
+        # STRICT EQUAL WEIGHT CALCULATION (100% / permanent_total_count)
+        if is_sunday:
+            completion_percentage = 100.0
+        elif permanent_total_count > 0:
+            raw_percent = (permanent_completed_count / float(permanent_total_count)) * 100.0
+            completion_percentage = min(100.0, round(raw_percent, 2))
+        else:
+            completion_percentage = 0.0
         
         total_tasks_done = sum(len(tasks) for tasks in history.values() if isinstance(tasks, list))
         current_level = 1 + (total_tasks_done // 5)
@@ -362,7 +367,7 @@ async def get_current_status(user_id: str = "default_user"):
                 for h_idx in history_done_indices:
                     if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
                         perm_done_hist += 1
-                c_percent = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
+                c_percent = round((perm_done_hist / float(permanent_total_count) * 100.0), 2) if permanent_total_count > 0 else 0.0
             else:
                 c_percent = 0.0
                 
@@ -448,7 +453,24 @@ async def delete_task(req: TaskDeleteReq):
         tasks = user.get("tasks", [])
         if 0 <= req.task_index < len(tasks):
             tasks.pop(req.task_index)
-            await users_collection.update_one({"user_id": req.user_id}, {"$set": {"tasks": tasks}})
+            
+            # Re-index history to prevent index shift corruption
+            history = user.get("history", {})
+            updated_history = {}
+            for date_key, done_indices in history.items():
+                if isinstance(done_indices, list):
+                    new_indices = []
+                    for idx in done_indices:
+                        if idx < req.task_index:
+                            new_indices.append(idx)
+                        elif idx > req.task_index:
+                            new_indices.append(idx - 1)
+                    updated_history[date_key] = new_indices
+
+            await users_collection.update_one(
+                {"user_id": req.user_id},
+                {"$set": {"tasks": tasks, "history": updated_history}}
+            )
             return {"success": True, "message": "Task deleted successfully!"}
         
         raise HTTPException(status_code=400, detail="Invalid task index")
@@ -492,8 +514,6 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         if not isinstance(history_dict, dict): history_dict = {}
             
         user_tasks = user.get("tasks", [])
-        
-        # Calculate total permanent tasks count
         permanent_total_count = sum(1 for t in user_tasks if t.get("task_type", "permanent") == "permanent")
 
         formatted_history = []
@@ -525,7 +545,7 @@ async def get_history(user_id: str = "default_user", days: int = 30):
                 for h_idx in history_done_indices:
                     if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
                         perm_done_hist += 1
-                completion_percentage = (perm_done_hist / permanent_total_count * 100.0) if permanent_total_count > 0 else 0.0
+                completion_percentage = round((perm_done_hist / float(permanent_total_count) * 100.0), 2) if permanent_total_count > 0 else 0.0
             else:
                 completion_percentage = 0.0
                 
@@ -539,4 +559,4 @@ async def get_history(user_id: str = "default_user", days: int = 30):
         
         return {"history": formatted_history}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))         
+        raise HTTPException(status_code=500, detail=str(e))
