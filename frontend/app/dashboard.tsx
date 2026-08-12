@@ -178,8 +178,19 @@ export default function Dashboard() {
 
   const loadData = async (activeUserId: string) => {
     try {
-      const response = await axios.get(`https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}`);
+      const response = await axios.get(
+        `https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}&t=${Date.now()}`
+      );
       if (response.data) {
+        if (response.data.active === false) {
+          setChallenge(null);
+          setToday(null);
+          await AsyncStorage.removeItem('user_id');
+          Alert.alert("System Reset", "User data not found in database.");
+          router.replace('/');
+          return;
+        }
+
         if (response.data.username) setUserName(response.data.username);
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
@@ -724,6 +735,13 @@ export default function Dashboard() {
         <Text style={styles.statsButtonText}>VIEW STATS & PROGRESS</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity 
+        style={[styles.statsButton, { backgroundColor: '#ffd700', marginTop: -4 }]} 
+         onPress={() => router.push('/leaderboard' as any)}
+      >
+        <Text style={[styles.statsButtonText, { color: '#0a0e27' }]}>GLOBAL LEADERBOARD 🏆</Text>
+      </TouchableOpacity>
+
       <Modal visible={plusMenuVisible} animationType="fade" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={styles.plusMenuContainer}>
@@ -1120,7 +1138,6 @@ const styles = StyleSheet.create({
   statsButton: { backgroundColor: '#00d4ff', padding: 16, margin: 16, borderRadius: 12 },
   statsButtonText: { fontSize: 16, fontWeight: '900', color: '#0a0e27', textAlign: 'center' },
   
-  /* PLUS SELECTION MENU STYLING */
   plusMenuContainer: { backgroundColor: '#0a0e27', borderWidth: 2, borderColor: '#00d4ff', borderRadius: 16, padding: 20, width: '85%' },
   plusOptionBtn: { backgroundColor: 'rgba(0, 212, 255, 0.1)', borderWidth: 1.5, borderColor: '#00d4ff', padding: 14, borderRadius: 10, marginBottom: 12, alignItems: 'center' },
   plusOptionText: { color: '#00d4ff', fontWeight: '900', fontSize: 13, letterSpacing: 1 },
@@ -1141,7 +1158,6 @@ const styles = StyleSheet.create({
   typeButtonText: { color: '#8b9dc3', fontWeight: '700', fontSize: 12 },
   typeTextActive: { color: '#0a0e27' },
 
-  /* ACTION BUTTONS SIDE-BY-SIDE FIXED STYLING */
   modalActionsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
   modalHalfCancelBtn: { flex: 1, padding: 14, borderRadius: 8, borderWidth: 1, borderColor: '#ff6b6b', alignItems: 'center', justifyContent: 'center' },
   modalHalfAddBtn: { flex: 1, backgroundColor: '#00d4ff', padding: 14, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
@@ -1168,7 +1184,6 @@ const styles = StyleSheet.create({
   selectedDatePreview: { color: '#00d4ff', textAlign: 'center', fontWeight: '800', marginTop: 12, fontSize: 13 },
   calendarActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
 
-  /* FULL SCREEN RANK VIDEO OVERLAY STYLING */
   videoOverlayContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
   fullVideo: { width: '100%', height: '100%' },
   skipButton: { position: 'absolute', top: 50, right: 20, backgroundColor: 'rgba(0, 212, 255, 0.3)', borderWidth: 1, borderColor: '#00d4ff', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },

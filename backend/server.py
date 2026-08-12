@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timedelta, timezone
 import motor.motor_asyncio
 import bcrypt
@@ -19,6 +19,7 @@ client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URI, serverSelectionTimeou
 db = client.shadow_db
 users_collection = db.users
 otps_collection = db.password_reset_otps
+leaderboard_history_collection = db.leaderboard_history
 
 JWT_SECRET = os.getenv("JWT_SECRET", "shadow_monarch_secret_key_123")
 
@@ -102,10 +103,8 @@ def create_access_token(data: dict):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
-# BREVO DIRECT HTTP API EMAIL DISPATCH
 def send_email_otp_brevo(to_email: str, otp_code: str):
     if not BREVO_API_KEY:
-        print("BREVO_API_KEY environment variable missing!")
         return
 
     url = "https://api.brevo.com/v3/smtp/email"
@@ -132,12 +131,10 @@ def send_email_otp_brevo(to_email: str, otp_code: str):
     }
 
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        print(f"Brevo API Response Status: {response.status_code}")
+        requests.post(url, json=payload, headers=headers, timeout=10)
     except Exception as e:
-        print(f"Brevo API Dispatch Error: {e}")
+        print(f"Brevo API Error: {e}")
 
-# --- HEALTH CHECK & WAKE-UP SIGNAL ---
 @app.get("/")
 async def health():
     try:
@@ -146,7 +143,6 @@ async def health():
     except Exception as e:
         return {"status": "Online", "database": f"Error: {str(e)} ❌"}
 
-# --- AUTHENTICATION ROUTES ---
 @app.post("/api/auth/register")
 @app.post("/auth/register")
 async def register(user_data: RegisterRequest):
@@ -158,7 +154,7 @@ async def register(user_data: RegisterRequest):
 
     existing_username = await users_collection.find_one({"username_lower": username_clean.lower()})
     if existing_username:
-        raise HTTPException(status_code=400, detail="This Username is already taken! Choose another Shadow name.")
+        raise HTTPException(status_code=400, detail="This Username is already taken!")
 
     existing_email = await users_collection.find_one({"email": email_clean})
     if existing_email:
@@ -215,7 +211,6 @@ async def login(user_data: LoginRequest):
         "message": f"Welcome Back, Monarch {username}!"
     }
 
-# --- FORGOT & RESET PASSWORD ---
 @app.post("/api/auth/forgot-password")
 async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTasks):
     email_clean = req.email.strip().lower()
@@ -235,10 +230,7 @@ async def forgot_password(req: ForgotPasswordReq, background_tasks: BackgroundTa
 
     background_tasks.add_task(send_email_otp_brevo, email_clean, otp_code)
 
-    return {
-        "success": True,
-        "message": f"OTP Verification Code sent to {email_clean}! Please check your email inbox."
-    }
+    return {"success": True, "message": f"OTP Verification Code sent to {email_clean}!"}
 
 @app.post("/api/auth/reset-password")
 async def reset_password(req: VerifyResetReq):
@@ -249,15 +241,14 @@ async def reset_password(req: VerifyResetReq):
         raise HTTPException(status_code=400, detail="Invalid OTP Code!")
 
     if get_ist_time() > record.get("expires_at"):
-        raise HTTPException(status_code=400, detail="OTP Code Expired! Please click Resend OTP.")
+        raise HTTPException(status_code=400, detail="OTP Code Expired!")
 
     hashed_pwd = hash_password(req.new_password.strip())
     await users_collection.update_one({"email": email_clean}, {"$set": {"password": hashed_pwd}})
     await otps_collection.delete_one({"email": email_clean})
 
-    return {"success": True, "message": "Password reset successful! You can now login with your new password."}
+    return {"success": True, "message": "Password reset successful!"}
 
-# --- QUEST & CHALLENGE MANAGEMENT (PERMANENT EQUAL 100% DIVISION) ---
 @app.get("/api/challenge/current")
 async def get_current_status(user_id: str = "default_user"):
     try:
@@ -288,8 +279,6 @@ async def get_current_status(user_id: str = "default_user"):
         if not isinstance(completed_today_indices, list): completed_today_indices = []
 
         tasks_response = []
-        
-        # EXACT EQUAL DIVISION AMONG ALL PERMANENT TASKS
         permanent_total_count = 0
         permanent_completed_count = 0
 
@@ -328,7 +317,6 @@ async def get_current_status(user_id: str = "default_user"):
                 "is_locked": is_locked
             })
         
-        # STRICT EQUAL WEIGHT CALCULATION (100% / permanent_total_count)
         if is_sunday:
             completion_percentage = 100.0
         elif permanent_total_count > 0:
@@ -348,7 +336,6 @@ async def get_current_status(user_id: str = "default_user"):
             "recovery": 10 + int(total_tasks_done * 0.8)
         }
 
-        # GENERATE FORMATTED HISTORY LIST
         formatted_history = []
         today_date = ist_now.date()
         range_start = start_date.date()
@@ -400,7 +387,6 @@ async def get_current_status(user_id: str = "default_user"):
             "history": formatted_history
         }
     except Exception as e:
-        print(f"CRITICAL ERROR IN CURRENT STATUS: {e}")
         return {"active": False, "error": str(e)}
 
 @app.post("/api/challenge/start")
@@ -434,11 +420,7 @@ async def add_custom_task(req: CustomTaskReq):
             "start_date": req.start_date,
             "end_date": req.end_date
         }
-        
-        await users_collection.update_one(
-            {"user_id": req.user_id},
-            {"$push": {"tasks": new_task}}
-        )
+        await users_collection.update_one({"user_id": req.user_id}, {"$push": {"tasks": new_task}})
         return {"success": True, "message": "Custom task added to protocol!"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -453,8 +435,6 @@ async def delete_task(req: TaskDeleteReq):
         tasks = user.get("tasks", [])
         if 0 <= req.task_index < len(tasks):
             tasks.pop(req.task_index)
-            
-            # Re-index history to prevent index shift corruption
             history = user.get("history", {})
             updated_history = {}
             for date_key, done_indices in history.items():
@@ -503,60 +483,107 @@ async def update_task(req: TaskUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/challenge/history")
-async def get_history(user_id: str = "default_user", days: int = 30):
+# --- NEW LEADERBOARD TIME-LOCKED WINNER ROUTE ---
+@app.get("/api/leaderboard")
+async def get_leaderboard():
     try:
-        user = await users_collection.find_one({"user_id": user_id})
-        if not user:
-            return {"history": []}
-        
-        history_dict = user.get("history", {})
-        if not isinstance(history_dict, dict): history_dict = {}
-            
-        user_tasks = user.get("tasks", [])
-        permanent_total_count = sum(1 for t in user_tasks if t.get("task_type", "permanent") == "permanent")
-
-        formatted_history = []
         ist_now = get_ist_time()
-        today_date = ist_now.date()
+        today_str = ist_now.strftime("%Y-%m-%d")
+        day_name = ist_now.strftime("%A")
         
-        start_date_str = user.get("start_date")
-        try:
-            if start_date_str:
-                start_date = datetime.fromisoformat(start_date_str.replace("Z", "+00:00")).date()
+        # Check end of month
+        next_day = ist_now + timedelta(days=1)
+        is_month_end = next_day.day == 1
+
+        is_daily_unlock_window = (ist_now.hour == 23 and ist_now.minute >= 57)
+        
+        # Determine locked states
+        is_daily_locked = not is_daily_unlock_window
+        is_weekly_locked = not (day_name == "Sunday" and is_daily_unlock_window)
+        is_monthly_locked = not (is_month_end and is_daily_unlock_window)
+
+        # Hierarchy override logic
+        active_view = "daily"
+        if is_month_end and ist_now.hour == 23 and ist_now.minute == 59:
+            active_view = "monthly"
+        elif day_name == "Sunday" and ist_now.hour == 23 and ist_now.minute == 59:
+            active_view = "weekly"
+
+        all_users = await users_collection.find({}).to_list(1000)
+        daily_rankings = []
+        weekly_rankings = []
+        monthly_rankings = []
+
+        for u in all_users:
+            uname = u.get("username", "SHADOW MONARCH")
+            u_tasks = u.get("tasks", [])
+            history = u.get("history", {})
+            if not isinstance(history, dict): history = {}
+
+            perm_count = sum(1 for t in u_tasks if t.get("task_type", "permanent") == "permanent")
+
+            # Daily Score
+            today_done = history.get(today_str, [])
+            if isinstance(today_done, list) and perm_count > 0:
+                perm_done = sum(1 for idx in today_done if 0 <= idx < len(u_tasks) and u_tasks[idx].get("task_type", "permanent") == "permanent")
+                d_score = round((perm_done / float(perm_count)) * 100.0, 2)
             else:
-                start_date = today_date
-        except Exception:
-            start_date = today_date
-            
-        range_start = max(start_date, today_date - timedelta(days=days-1))
-        current_iter_date = range_start
-        
-        while current_iter_date <= today_date:
-            date_str = current_iter_date.strftime("%Y-%m-%d")
-            day_name = current_iter_date.strftime("%A")
-            day_num = max(1, (current_iter_date - start_date).days + 1)
-            
-            if day_name == "Sunday":
-                completion_percentage = 100.0
-            elif date_str in history_dict and isinstance(history_dict[date_str], list):
-                history_done_indices = history_dict[date_str]
-                perm_done_hist = 0
-                for h_idx in history_done_indices:
-                    if 0 <= h_idx < len(user_tasks) and user_tasks[h_idx].get("task_type", "permanent") == "permanent":
-                        perm_done_hist += 1
-                completion_percentage = round((perm_done_hist / float(permanent_total_count) * 100.0), 2) if permanent_total_count > 0 else 0.0
-            else:
-                completion_percentage = 0.0
-                
-            formatted_history.append({
-                "day_number": day_num,
-                "date": date_str,
-                "day_of_week": day_name,
-                "completion_percentage": completion_percentage
-            })
-            current_iter_date += timedelta(days=1)
-        
-        return {"history": formatted_history}
+                d_score = 0.0
+
+            daily_rankings.append({"username": uname, "score": d_score})
+
+            # Weekly Average Score (Last 7 days)
+            w_scores = []
+            for i in range(7):
+                d_key = (ist_now - timedelta(days=i)).strftime("%Y-%m-%d")
+                d_list = history.get(d_key, [])
+                if isinstance(d_list, list) and perm_count > 0:
+                    p_done = sum(1 for idx in d_list if 0 <= idx < len(u_tasks) and u_tasks[idx].get("task_type", "permanent") == "permanent")
+                    w_scores.append((p_done / float(perm_count)) * 100.0)
+                else:
+                    w_scores.append(0.0)
+            w_avg = round(sum(w_scores) / 7.0, 2)
+            weekly_rankings.append({"username": uname, "score": w_avg})
+
+            # Monthly Average Score (Last 30 days)
+            m_scores = []
+            for i in range(30):
+                d_key = (ist_now - timedelta(days=i)).strftime("%Y-%m-%d")
+                d_list = history.get(d_key, [])
+                if isinstance(d_list, list) and perm_count > 0:
+                    p_done = sum(1 for idx in d_list if 0 <= idx < len(u_tasks) and u_tasks[idx].get("task_type", "permanent") == "permanent")
+                    m_scores.append((p_done / float(perm_count)) * 100.0)
+                else:
+                    m_scores.append(0.0)
+            m_avg = round(sum(m_scores) / 30.0, 2)
+            monthly_rankings.append({"username": uname, "score": m_avg})
+
+        daily_rankings.sort(key=lambda x: x["score"], reverse=True)
+        weekly_rankings.sort(key=lambda x: x["score"], reverse=True)
+        monthly_rankings.sort(key=lambda x: x["score"], reverse=True)
+
+        # Get previous winners archives
+        past_winners = await leaderboard_history_collection.find({}, {"_id": 0}).sort("timestamp", -1).to_list(100)
+
+        return {
+            "server_time": ist_now.strftime("%H:%M:%S"),
+            "active_view": active_view,
+            "daily": {
+                "locked": is_daily_locked,
+                "winner": daily_rankings[0] if daily_rankings else None,
+                "rankings": daily_rankings
+            },
+            "weekly": {
+                "locked": is_weekly_locked,
+                "winner": weekly_rankings[0] if weekly_rankings else None,
+                "rankings": weekly_rankings
+            },
+            "monthly": {
+                "locked": is_monthly_locked,
+                "winner": monthly_rankings[0] if monthly_rankings else None,
+                "rankings": monthly_rankings
+            },
+            "archives": past_winners
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
