@@ -6,13 +6,13 @@ An epic, production-ready gamified task tracking and personal transformation mob
 
 ## 🌐 Live Cloud Deployment
 - **Backend API Base URL:** `https://arise-presentation-api.onrender.com`
-- **API Status & Health Check:** `https://arise-presentation-api.onrender.com/`
+- **API Status & Health Check:** `https://arise-presentation-api.onrender.com/`[cite: 5]
 
 ---
 
 ## 🎯 Overview
 
-ARISE is a motivational gaming-themed task tracking application that turns your daily schedule into an exciting RPG adventure[cite: 2]. Complete tasks, earn ranks, level up, track dynamic attributes, run high-precision focus sessions, and compete on the global leaderboard over 180 continuous days[cite: 1, 2, 4].
+ARISE is a motivational gaming-themed task tracking application that turns your daily schedule into an exciting RPG adventure. Complete tasks, earn ranks, level up, track dynamic attributes, run high-precision focus sessions, and compete on the global leaderboard over 180 continuous days[cite: 1, 2, 4].
 
 ---
 
@@ -20,8 +20,8 @@ ARISE is a motivational gaming-themed task tracking application that turns your 
 
 ### Core Task & Progression Engine
 * **180-Day Challenge:** Continuous 180-day transformation protocol designed to enforce absolute consistency[cite: 2].
-* **Strict Equal-Weight Division:** Daily permanent quests divide dynamically on an exact $100\%$ scale ($100/N\%$ per task)[cite: 4].
-* **Permanent & Temporary Quests:** Supports both persistent daily habits and timeline-locked temporary quests with start/end date validation and interactive popup calendar selection[cite: 4].
+* **Strict Equal-Weight Division:** Daily permanent quests divide dynamically on an exact $100\%$ scale ($100/N\%$ per task).
+* **Permanent & Temporary Quests:** Supports both persistent daily habits and timeline-locked temporary quests with start/end date validation and interactive popup calendar selection.
 * **Rest Day Automation:** Automatic $100\%$ completion credit every Sunday to safeguard weekly averages[cite: 2].
 * **Rank Evolution System:** Real-time rank tiers updated instantly based on daily and weekly performance[cite: 3]:
   * **1% Rank:** 97%+ Completion (Peak Hunter Dominance)
@@ -32,11 +32,11 @@ ARISE is a motivational gaming-themed task tracking application that turns your 
   * **D Rank:** 50% - 64% Completion
   * **E Rank:** 30% - 49% Completion
   * **F Rank:** Below 30% Completion
-* **Level & Attribute Tracking:** Real-time stats progression across Strength, Vitality, Agility, and Recovery as quests are cleared[cite: 4].
+* **Level & Attribute Tracking:** Real-time stats progression across Strength, Vitality, Agility, and Recovery as quests are cleared.
 * **Cinematic Video Cutscenes:** Native milestone video overlays triggering for awakening and elite rank advancements (1%, S, A)[cite: 4].
 
 ### 🏆 Automated Time-Locked Global Leaderboard
-* **Dynamic Time Locks:** Scores remain locked throughout the day and open during the calculation window (11:57 PM - 11:59 PM IST)[cite: 1].
+* **Dynamic Time Locks:** Scores remain locked throughout the day and open during the calculation window (11:57 PM - 11:59 PM IST).
 * **Daily Winner:** Revealed automatically every night at 11:59 PM IST[cite: 1].
 * **Weekly Champion:** Revealed every Sunday at 11:59 PM IST (Daily winner is hidden to spotlight the weekly master)[cite: 1].
 * **Monthly Legend:** Declared on the last day of each month at 11:59 PM IST[cite: 1].
@@ -93,3 +93,69 @@ ARISE is a motivational gaming-themed task tracking application that turns your 
 │   ├── app.json               # Expo app configuration
 │   └── package.json           # Node dependencies
 └── README.md
+
+```
+📋 API Endpoints Overview
+Authentication & Recovery
+POST /api/auth/register - Create and awaken new player account
+
+POST /api/auth/login - Authenticate player and issue signed JWT token
+
+POST /api/auth/forgot-password - Generate and send 6-digit OTP via Brevo
+
+POST /api/auth/reset-password - Verify OTP and update account password
+
+Challenge & Quest Management
+GET / - API health check and server IST timestamp
+
+GET /api/challenge/current - Get active challenge progress, tasks, ranks, and historical data[cite: 4]
+
+POST /api/challenge/start - Initialize 180-day challenge protocol[cite: 2]
+
+POST /api/challenge/task - Toggle daily task status (Kill / Defeat)[cite: 4]
+
+POST /api/challenge/custom-task - Add permanent or temporary custom quests[cite: 4]
+
+POST /api/challenge/task/delete - Delete a custom quest and reindex history arrays[cite: 4]
+
+Global Leaderboard
+GET /api/leaderboard - Fetch daily, weekly, and monthly locked/unlocked standings and past archives[cite: 1]
+
+⚙️ Local Setup & Installation
+1. Backend Setup
+Open your terminal and run:
+
+cd backend
+python -m venv venv
+
+# On Windows:
+venv\Scripts\activate
+
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies and launch the server:
+pip install -r requirements.txt
+uvicorn server.py:app --reload
+
+2. Frontend Setup
+Open a new terminal tab and run
+
+cd frontend
+npm install
+npx expo start -c
+
+Scan the generated QR code using the Expo Go application on your mobile device to test live.🎨 
+
+🎨 Design Philosophy
+Dark cyberpunk aesthetic inspired by Solo Leveling:
+Background: Deep Shadow Navy (#060919 / #0a0e27) 
+Primary Accent: Electric Cyan (#00d4ff) 
+Success Indicator: Neon Green (#00ff64) 
+Alert & Defeat: Crimson Red (#ff2e2e / #ff6b6b) 
+Elite Highlights: Gold (#ffd700) 
+
+📄 LicenseThis project is licensed under the MIT License.
+Built for dedicated achievers and solo enthusiasts.
+
+⚔️⚔️⚔️"Six days of war. One day of peace."🗡️🗡️🗡️
