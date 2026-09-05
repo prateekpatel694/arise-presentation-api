@@ -20,7 +20,7 @@ interface Task {
   duration: number;
   completed: boolean;
   task_type?: 'permanent' | 'temporary';
-  start_date?: string;
+  start_date?: string; 
   end_date?: string;
   is_locked?: boolean;
 }
@@ -58,29 +58,23 @@ export default function Dashboard() {
   const [animatingTask, setAnimatingTask] = useState<number | null>(null);
   const [slashAnim] = useState(new Animated.Value(0));
 
-  // ONE-TIME APP RESTART DIRECT ENTRY VIDEO STATE
+  const isResettingRef = useRef<boolean>(false);
   const [showDirectVideo, setShowDirectVideo] = useState(false);
-
-  // AWAKENING LOADING TIMER STATES
   const [timerSeconds, setTimerSeconds] = useState(50);
   const [serverAwakeSignal, setServerAwakeSignal] = useState(false);
   const strokeAnim = useRef(new Animated.Value(0)).current;
 
-  // RANK ANIMATION VIDEO STATES
   const [rankVideoSource, setRankVideoSource] = useState<any>(null);
   const [showRankVideo, setShowRankVideo] = useState<boolean>(false);
 
-  // PLUS BUTTON SELECTION MODAL
   const [plusMenuVisible, setPlusModalVisible] = useState(false);
 
-  // Add Task Modal
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskTime, setTaskTime] = useState('12:00 PM');
   const [taskDuration, setTaskDuration] = useState('30');
   const [taskType, setTaskType] = useState<'permanent' | 'temporary'>('permanent');
 
-  // FOCUS TIMER MODAL & HH:MM:SS PLACEHOLDER STATES
   const [focusModalVisible, setFocusModalVisible] = useState(false);
   const [inputHours, setInputHours] = useState('');
   const [inputMins, setInputMins] = useState('');
@@ -94,7 +88,6 @@ export default function Dashboard() {
   const focusEndTimeRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  // Calendar Modal
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
   const [calendarVisible, setCalendarVisible] = useState(false);
@@ -177,20 +170,44 @@ export default function Dashboard() {
   };
 
   const loadData = async (activeUserId: string) => {
+    if (isResettingRef.current) return; 
+
     try {
       const response = await axios.get(
         `https://arise-presentation-api.onrender.com/api/challenge/current?user_id=${activeUserId}&t=${Date.now()}`
       );
-      if (response.data) {
-        if (response.data.active === false) {
-          setChallenge(null);
-          setToday(null);
-          await AsyncStorage.removeItem('user_id');
-          Alert.alert("System Reset", "User data not found in database.");
-          router.replace('/');
-          return;
-        }
 
+      if (response.data && response.data.active === false) {
+        if (isResettingRef.current) return;
+        isResettingRef.current = true;
+
+        await AsyncStorage.multiRemove([
+          'user_id', 
+          'username', 
+          'user_token', 
+          'user_email', 
+          'server_is_awake', 
+          'challenge_started',
+          'has_played_direct_video'
+        ]);
+
+        Alert.alert(
+          "System Reset ⚔️",
+          "User record not found in database. Redirecting to login...",
+          [
+            { 
+              text: "OK", 
+              onPress: () => {
+                router.replace('/');
+              } 
+            }
+          ],
+          { cancelable: false }
+        );
+        return;
+      }
+
+      if (response.data) {
         if (response.data.username) setUserName(response.data.username);
         if (response.data.challenge && response.data.today) {
           setChallenge(response.data.challenge);
@@ -217,7 +234,7 @@ export default function Dashboard() {
         }
       }
     } catch (error) {
-      console.error(error);
+      console.error("Dashboard Load Error:", error);
     }
   };
 
@@ -426,26 +443,62 @@ export default function Dashboard() {
     }
 
     setAddingTask(true);
+    
+    // OPTIMISTIC UI UPDATE: Close modal & render task instantly
+    setIsModalVisible(false);
+    
+    const isTemp = taskType === 'temporary';
+    const sd = isTemp ? format(startDate, 'yyyy-MM-dd') : undefined;
+    const ed = isTemp ? format(endDate, 'yyyy-MM-dd') : undefined;
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    const locked = isTemp && sd ? sd > todayStr : false;
+
+    const newTask: Task = {
+      task: taskTitle.trim(),
+      time: taskTime,
+      duration: parseInt(taskDuration) || 30,
+      completed: false,
+      task_type: taskType,
+      start_date: sd,
+      end_date: ed,
+      is_locked: locked
+    };
+
+    setToday(prev => {
+      if (!prev) return prev;
+      const updatedTasks = [...prev.tasks, newTask];
+      
+      const validTasks = updatedTasks.filter(t => !t.is_locked);
+      const completedCount = validTasks.filter(t => t.completed).length;
+      const newPct = validTasks.length > 0 ? (completedCount / validTasks.length) * 100 : 0;
+
+      return {
+        ...prev,
+        tasks: updatedTasks,
+        completion_percentage: newPct
+      };
+    });
+
+    setTaskTitle('');
+    setAddingTask(false);
+
     try {
       const response = await axios.post("https://arise-presentation-api.onrender.com/api/challenge/custom-task", {
         user_id: userId,
-        task: taskTitle.trim(),
-        time: taskTime,
-        duration: parseInt(taskDuration) || 30,
-        task_type: taskType,
-        start_date: taskType === 'temporary' ? format(startDate, 'yyyy-MM-dd') : null,
-        end_date: taskType === 'temporary' ? format(endDate, 'yyyy-MM-dd') : null,
+        task: newTask.task,
+        time: newTask.time,
+        duration: newTask.duration,
+        task_type: newTask.task_type,
+        start_date: newTask.start_date,
+        end_date: newTask.end_date,
       });
 
       if (response.data.success) {
-        setIsModalVisible(false);
-        setTaskTitle('');
-        loadData(userId);
+        loadData(userId); // Silent background sync 
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to add custom task');
-    } finally {
-      setAddingTask(false);
+      loadData(userId); // Revert on error
     }
   };
 
@@ -577,7 +630,7 @@ export default function Dashboard() {
     );
   }
 
-  const isHundredPercent = today.completion_percentage >= 100;
+  const isHundredPercent = today.completion_percentage >= 100 && today.tasks.length > 0;
 
   if (showRankVideo && rankVideoSource) {
     return (
@@ -737,7 +790,7 @@ export default function Dashboard() {
 
       <TouchableOpacity 
         style={[styles.statsButton, { backgroundColor: '#ffd700', marginTop: -4 }]} 
-         onPress={() => router.push('/leaderboard' as any)}
+        onPress={() => router.push('/leaderboard' as any)}
       >
         <Text style={[styles.statsButtonText, { color: '#0a0e27' }]}>GLOBAL LEADERBOARD 🏆</Text>
       </TouchableOpacity>
