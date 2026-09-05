@@ -9,13 +9,30 @@ interface RankUser {
   score: number;
 }
 
+interface LeaderboardSection {
+  locked: boolean;
+  winner: RankUser | null;
+  winners?: RankUser[];
+  is_draw?: boolean;
+  rankings: RankUser[];
+}
+
+interface AriseWinArchive {
+  type: string;
+  date: string;
+  winner_name: string;
+  score: number;
+  is_draw?: boolean;
+  co_winners?: string[];
+}
+
 interface LeaderboardData {
   server_time: string;
   active_view: string;
-  daily: { locked: boolean; winner: RankUser | null; rankings: RankUser[] };
-  weekly: { locked: boolean; winner: RankUser | null; rankings: RankUser[] };
-  monthly: { locked: boolean; winner: RankUser | null; rankings: RankUser[] };
-  archives: any[];
+  daily: LeaderboardSection;
+  weekly: LeaderboardSection;
+  monthly: LeaderboardSection;
+  arise_wins: AriseWinArchive[];
 }
 
 export default function LeaderboardScreen() {
@@ -57,7 +74,7 @@ export default function LeaderboardScreen() {
     );
   }
 
-  const currentSection = data ? data[activeTab] : null;
+  const currentSection: LeaderboardSection | null = data ? data[activeTab] : null;
 
   return (
     <View style={styles.container}>
@@ -84,7 +101,7 @@ export default function LeaderboardScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#00d4ff" />}
       >
         {currentSection?.locked ? (
@@ -92,44 +109,73 @@ export default function LeaderboardScreen() {
             <Text style={styles.lockIcon}>🔒</Text>
             <Text style={styles.lockedTitle}>LEADERBOARD LOCKED</Text>
             <Text style={styles.lockedSubtext}>
-              {activeTab === 'daily' && 'Daily Winner reveals at 11:59 PM IST (Unlocks at 11:57 PM)'}
-              {activeTab === 'weekly' && 'Weekly Champion reveals on Sunday at 11:59 PM IST'}
-              {activeTab === 'monthly' && 'Monthly Legend reveals at Month-End at 11:59 PM IST'}
+              {activeTab === 'daily' && 'Daily Winner reveals at 11:55 PM IST'}
+              {activeTab === 'weekly' && 'Weekly Champion reveals on Sunday at 11:55 PM IST'}
+              {activeTab === 'monthly' && 'Monthly Legend reveals at Month-End at 11:55 PM IST'}
             </Text>
             <Text style={styles.clockText}>Server Clock: {data?.server_time}</Text>
-
-            {data?.archives && data.archives.length > 0 && (
-              <View style={styles.archiveContainer}>
-                <Text style={styles.archiveHeader}>🏆 HALL OF FAME (PAST WINNERS)</Text>
-                {data.archives.map((win, idx) => (
-                  <View key={idx} style={styles.archiveCard}>
-                    <Text style={styles.archiveType}>[{win.type?.toUpperCase()}] {win.date}</Text>
-                    <Text style={styles.archiveWinner}>👑 {win.winner_name} ({win.score}%)</Text>
-                  </View>
-                ))}
-              </View>
-            )}
           </View>
         ) : (
           <View style={styles.unlockedBox}>
-            {currentSection?.winner && (
+            {currentSection?.is_draw && currentSection.winners && currentSection.winners.length > 1 ? (
+              <LinearGradient colors={['#ffd700', '#ff8800']} style={styles.drawCard}>
+                <Text style={styles.drawBadge}>⚔️ RANK DRAW DETECTED (CO-CHAMPIONS) ⚔️</Text>
+                <Text style={styles.drawScore}>Tied High Score: {currentSection.winners[0].score}%</Text>
+                <View style={styles.drawNamesContainer}>
+                  {currentSection.winners.map((w, idx) => (
+                    <Text key={idx} style={styles.drawWinnerName}>
+                      👑 {w.username.toUpperCase()}
+                    </Text>
+                  ))}
+                </View>
+              </LinearGradient>
+            ) : currentSection?.winner ? (
               <LinearGradient colors={['#ffd700', '#ffaa00']} style={styles.winnerCard}>
                 <Text style={styles.winnerBadge}>👑 {activeTab.toUpperCase()} CHAMPION</Text>
                 <Text style={styles.winnerName}>{currentSection.winner.username.toUpperCase()}</Text>
                 <Text style={styles.winnerScore}>Score: {currentSection.winner.score}%</Text>
               </LinearGradient>
-            )}
+            ) : null}
 
-            <Text style={styles.rankingsHeader}>⚔️ GLOBAL RANKINGS</Text>
-            {currentSection?.rankings.map((user, idx) => (
-              <View key={idx} style={styles.rankRow}>
-                <Text style={styles.rankNum}>#{idx + 1}</Text>
-                <Text style={styles.rankName}>{user.username}</Text>
-                <Text style={styles.rankScore}>{user.score}%</Text>
-              </View>
-            ))}
+            <Text style={styles.rankingsHeader}>⚔️ GLOBAL STANDINGS</Text>
+            {currentSection?.rankings && currentSection.rankings.length > 0 ? (
+              currentSection.rankings.map((user, idx) => (
+                <View key={idx} style={styles.rankRow}>
+                  <Text style={styles.rankNum}>#{idx + 1}</Text>
+                  <Text style={styles.rankName}>{user.username}</Text>
+                  <Text style={styles.rankScore}>{user.score}%</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>No rankings recorded today yet.</Text>
+            )}
           </View>
         )}
+
+        {/* ARISE WIN (PREVIOUS WINNERS) SECTION */}
+        <View style={styles.ariseWinContainer}>
+          <View style={styles.ariseWinHeaderRow}>
+            <Text style={styles.ariseWinTitle}>👑 ARISE WIN</Text>
+            <Text style={styles.ariseWinSubtitle}>PREVIOUS WINNERS ARCHIVE</Text>
+          </View>
+
+          {data?.arise_wins && data.arise_wins.length > 0 ? (
+            data.arise_wins.map((win, idx) => (
+              <View key={idx} style={[styles.ariseWinCard, win.is_draw && styles.ariseWinDrawCard]}>
+                <View style={styles.ariseWinMetaRow}>
+                  <Text style={styles.ariseWinType}>[{win.type?.toUpperCase()}]</Text>
+                  <Text style={styles.ariseWinDate}>{win.date}</Text>
+                </View>
+                <Text style={styles.ariseWinWinner}>
+                  {win.is_draw ? `🤝 ${win.winner_name}` : `👑 ${win.winner_name}`}
+                </Text>
+                <Text style={styles.ariseWinScoreText}>Score: {win.score}%</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyText}>No previous winner archives available.</Text>
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -148,24 +194,39 @@ const styles = StyleSheet.create({
   activeTabBtn: { backgroundColor: '#00d4ff' },
   tabText: { color: '#8b9dc3', fontWeight: '900', fontSize: 12 },
   activeTabText: { color: '#0a0e27' },
-  lockedBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32 },
-  lockIcon: { fontSize: 54, marginBottom: 12 },
+  lockedBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 24 },
+  lockIcon: { fontSize: 48, marginBottom: 12 },
   lockedTitle: { color: '#ff2e2e', fontSize: 20, fontWeight: '900', letterSpacing: 1.5 },
-  lockedSubtext: { color: '#8b9dc3', textAlign: 'center', marginVertical: 10, fontSize: 13, paddingHorizontal: 20 },
-  clockText: { color: '#00d4ff', fontWeight: '800', marginTop: 6, fontSize: 13 },
-  unlockedBox: { marginTop: 10 },
+  lockedSubtext: { color: '#8b9dc3', textAlign: 'center', marginVertical: 8, fontSize: 13, paddingHorizontal: 20 },
+  clockText: { color: '#00d4ff', fontWeight: '800', marginTop: 4, fontSize: 13 },
+  unlockedBox: { marginTop: 8 },
   winnerCard: { borderRadius: 16, padding: 20, alignItems: 'center', marginBottom: 20, elevation: 8 },
   winnerBadge: { color: '#0a0e27', fontWeight: '900', fontSize: 12, letterSpacing: 1 },
   winnerName: { color: '#0a0e27', fontWeight: '900', fontSize: 24, marginVertical: 4 },
   winnerScore: { color: '#0a0e27', fontWeight: '800', fontSize: 14 },
+  
+  drawCard: { borderRadius: 16, padding: 18, alignItems: 'center', marginBottom: 20, borderWidth: 2, borderColor: '#ffffff' },
+  drawBadge: { color: '#0a0e27', fontWeight: '900', fontSize: 12, letterSpacing: 1, marginBottom: 4 },
+  drawScore: { color: '#0a0e27', fontWeight: '800', fontSize: 13, marginBottom: 8 },
+  drawNamesContainer: { width: '100%', alignItems: 'center' },
+  drawWinnerName: { color: '#0a0e27', fontWeight: '900', fontSize: 18, marginVertical: 2 },
+
   rankingsHeader: { color: '#00d4ff', fontWeight: '900', fontSize: 15, marginBottom: 12, letterSpacing: 1 },
   rankRow: { backgroundColor: '#082943', borderWidth: 1, borderColor: 'rgba(0, 212, 255, 0.3)', borderRadius: 10, padding: 14, flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   rankNum: { color: '#ffd700', fontWeight: '900', fontSize: 16, width: 40 },
   rankName: { color: '#ffffff', fontWeight: '800', fontSize: 15, flex: 1 },
   rankScore: { color: '#00ff64', fontWeight: '900', fontSize: 15 },
-  archiveContainer: { width: '100%', marginTop: 28, paddingTop: 20, borderTopWidth: 1, borderTopColor: 'rgba(0, 212, 255, 0.2)' },
-  archiveHeader: { color: '#ffd700', fontWeight: '900', fontSize: 14, marginBottom: 12, letterSpacing: 1 },
-  archiveCard: { backgroundColor: 'rgba(255, 215, 0, 0.08)', borderWidth: 1, borderColor: '#ffd700', padding: 12, borderRadius: 8, marginBottom: 8 },
-  archiveType: { color: '#8b9dc3', fontSize: 11, fontWeight: '700' },
-  archiveWinner: { color: '#ffffff', fontSize: 14, fontWeight: '900', marginTop: 2 }
+  
+  ariseWinContainer: { width: '100%', marginTop: 24, paddingTop: 16, borderTopWidth: 2, borderTopColor: 'rgba(0, 212, 255, 0.3)' },
+  ariseWinHeaderRow: { marginBottom: 14 },
+  ariseWinTitle: { color: '#ffd700', fontWeight: '900', fontSize: 18, letterSpacing: 1 },
+  ariseWinSubtitle: { color: '#8b9dc3', fontWeight: '700', fontSize: 11, letterSpacing: 1 },
+  ariseWinCard: { backgroundColor: 'rgba(255, 215, 0, 0.08)', borderWidth: 1.5, borderColor: '#ffd700', padding: 14, borderRadius: 10, marginBottom: 10 },
+  ariseWinDrawCard: { borderColor: '#00ff64', backgroundColor: 'rgba(0, 255, 100, 0.06)' },
+  ariseWinMetaRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  ariseWinType: { color: '#ffd700', fontSize: 11, fontWeight: '900' },
+  ariseWinDate: { color: '#8b9dc3', fontSize: 11, fontWeight: '700' },
+  ariseWinWinner: { color: '#ffffff', fontSize: 15, fontWeight: '900', marginTop: 2 },
+  ariseWinScoreText: { color: '#00ff64', fontSize: 12, fontWeight: '800', marginTop: 4 },
+  emptyText: { color: '#8b9dc3', fontStyle: 'italic', textAlign: 'center', marginVertical: 10 }
 });

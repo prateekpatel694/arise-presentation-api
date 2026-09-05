@@ -493,7 +493,7 @@ async def update_task(req: TaskUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- GLOBAL LEADERBOARD ROUTE ---
+# --- GLOBAL LEADERBOARD ROUTE (11:55 PM REVEAL & DRAW LOGIC) ---
 @app.get("/api/leaderboard")
 async def get_leaderboard():
     try:
@@ -504,16 +504,17 @@ async def get_leaderboard():
         next_day = ist_now + timedelta(days=1)
         is_month_end = next_day.day == 1
 
-        is_daily_unlock_window = (ist_now.hour == 23 and ist_now.minute >= 57)
+        # 11:55 PM IST UNLOCK WINDOW
+        is_daily_unlock_window = (ist_now.hour == 23 and ist_now.minute >= 55)
         
         is_daily_locked = not is_daily_unlock_window
         is_weekly_locked = not (day_name == "Sunday" and is_daily_unlock_window)
         is_monthly_locked = not (is_month_end and is_daily_unlock_window)
 
         active_view = "daily"
-        if is_month_end and ist_now.hour == 23 and ist_now.minute == 59:
+        if is_month_end and ist_now.hour == 23 and ist_now.minute >= 55:
             active_view = "monthly"
-        elif day_name == "Sunday" and ist_now.hour == 23 and ist_now.minute == 59:
+        elif day_name == "Sunday" and ist_now.hour == 23 and ist_now.minute >= 55:
             active_view = "weekly"
 
         all_users = await users_collection.find({}).to_list(1000)
@@ -527,7 +528,7 @@ async def get_leaderboard():
             history = u.get("history", {})
             if not isinstance(history, dict): history = {}
 
-            # Today's calculation (All active tasks count)
+            # Today's calculation
             valid_today_count = 0
             for t in u_tasks:
                 t_type = t.get("task_type", "permanent")
@@ -612,7 +613,20 @@ async def get_leaderboard():
         weekly_rankings.sort(key=lambda x: x["score"], reverse=True)
         monthly_rankings.sort(key=lambda x: x["score"], reverse=True)
 
-        # Dynamic Past Daily Winners Calculation (Last 7 Days)
+        # Helper function for Tie / Draw check
+        def extract_winners(rankings_list):
+            if not rankings_list:
+                return []
+            highest = rankings_list[0]["score"]
+            if highest <= 0:
+                return []
+            return [u for u in rankings_list if u["score"] == highest]
+
+        daily_winners = extract_winners(daily_rankings)
+        weekly_winners = extract_winners(weekly_rankings)
+        monthly_winners = extract_winners(monthly_rankings)
+
+        # Dynamic Previous Daily Winners (Past 7 Days)
         past_daily_winners = []
         for i in range(1, 8):
             past_date_str = (ist_now - timedelta(days=i)).strftime("%Y-%m-%d")
@@ -644,37 +658,48 @@ async def get_leaderboard():
                         
             if day_rankings:
                 day_rankings.sort(key=lambda x: x["score"], reverse=True)
-                best = day_rankings[0]
+                top_score = day_rankings[0]["score"]
+                top_users = [u for u in day_rankings if u["score"] == top_score]
+                is_draw = len(top_users) > 1
+                winner_title = " & ".join([u["username"] for u in top_users]) + (" (DRAW)" if is_draw else "")
+
                 past_daily_winners.append({
                     "type": "daily",
-                    "date": best["date"],
-                    "winner_name": best["username"],
-                    "score": best["score"]
+                    "date": past_date_str,
+                    "winner_name": winner_title,
+                    "score": top_score,
+                    "is_draw": is_draw,
+                    "co_winners": [u["username"] for u in top_users]
                 })
 
-        # DB se Past Monthly/Weekly winners fetch karke, naye past daily winners merge karna
-        past_winners = await leaderboard_history_collection.find({}, {"_id": 0}).sort("timestamp", -1).to_list(100)
-        archives = past_daily_winners + past_winners
+        db_past_winners = await leaderboard_history_collection.find({}, {"_id": 0}).sort("timestamp", -1).to_list(100)
+        arise_wins = past_daily_winners + db_past_winners
 
         return {
             "server_time": ist_now.strftime("%H:%M:%S"),
             "active_view": active_view,
             "daily": {
                 "locked": is_daily_locked,
-                "winner": daily_rankings[0] if daily_rankings else None,
+                "winners": daily_winners,
+                "winner": daily_winners[0] if daily_winners else None,
+                "is_draw": len(daily_winners) > 1,
                 "rankings": daily_rankings
             },
             "weekly": {
                 "locked": is_weekly_locked,
-                "winner": weekly_rankings[0] if weekly_rankings else None,
+                "winners": weekly_winners,
+                "winner": weekly_winners[0] if weekly_winners else None,
+                "is_draw": len(weekly_winners) > 1,
                 "rankings": weekly_rankings
             },
             "monthly": {
                 "locked": is_monthly_locked,
-                "winner": monthly_rankings[0] if monthly_rankings else None,
+                "winners": monthly_winners,
+                "winner": monthly_winners[0] if monthly_winners else None,
+                "is_draw": len(monthly_winners) > 1,
                 "rankings": monthly_rankings
             },
-            "archives": archives
+            "arise_wins": arise_wins
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
