@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl, 
-  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Vibration 
+  Alert, Animated, Modal, TextInput, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Vibration, Keyboard 
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import axios from 'axios';
@@ -170,7 +170,7 @@ export default function Dashboard() {
   };
 
   const loadData = async (activeUserId: string) => {
-    if (isResettingRef.current) return; 
+    if (isResettingRef.current) return;
 
     try {
       const response = await axios.get(
@@ -388,6 +388,7 @@ export default function Dashboard() {
   };
 
   const startFocusTimer = async () => {
+    Keyboard.dismiss();
     const hrs = parseInt(inputHours) || 0;
     const mins = parseInt(inputMins) || 0;
     const secs = parseInt(inputSecs) || 0;
@@ -419,6 +420,7 @@ export default function Dashboard() {
   };
 
   const openCalendarFor = (target: 'start' | 'end') => {
+    Keyboard.dismiss();
     setActiveDateTarget(target);
     const initialDate = target === 'start' ? startDate : endDate;
     setTempSelectedDate(initialDate);
@@ -437,14 +439,13 @@ export default function Dashboard() {
   };
 
   const handleAddNewTask = async () => {
+    Keyboard.dismiss();
     if (!taskTitle.trim()) {
       Alert.alert('Required', 'Please enter a task title');
       return;
     }
 
     setAddingTask(true);
-    
-    // OPTIMISTIC UI UPDATE: Close modal & render task instantly
     setIsModalVisible(false);
     
     const isTemp = taskType === 'temporary';
@@ -479,13 +480,14 @@ export default function Dashboard() {
       };
     });
 
+    const payloadTitle = taskTitle.trim();
     setTaskTitle('');
     setAddingTask(false);
 
     try {
       const response = await axios.post("https://arise-presentation-api.onrender.com/api/challenge/custom-task", {
         user_id: userId,
-        task: newTask.task,
+        task: payloadTitle,
         time: newTask.time,
         duration: newTask.duration,
         task_type: newTask.task_type,
@@ -494,11 +496,11 @@ export default function Dashboard() {
       });
 
       if (response.data.success) {
-        loadData(userId); // Silent background sync 
+        loadData(userId);
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to add custom task');
-      loadData(userId); // Revert on error
+      loadData(userId);
     }
   };
 
@@ -930,13 +932,26 @@ export default function Dashboard() {
       </Modal>
 
       <Modal visible={isModalVisible} animationType="slide" transparent={true}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContainer}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+            <ScrollView 
+              showsVerticalScrollIndicator={false} 
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
               <Text style={styles.modalTitle}>⚔️ ADD CUSTOM QUEST</Text>
 
               <Text style={styles.label}>Task Title</Text>
-              <TextInput style={styles.input} placeholder="e.g., Code Review" placeholderTextColor="#666" value={taskTitle} onChangeText={setTaskTitle} />
+              <TextInput 
+                style={styles.input} 
+                placeholder="e.g., Code Review" 
+                placeholderTextColor="#666" 
+                value={taskTitle} 
+                onChangeText={setTaskTitle} 
+              />
 
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flex: 1 }}>
@@ -953,7 +968,7 @@ export default function Dashboard() {
               <View style={styles.typeSelectorContainer}>
                 <TouchableOpacity
                   style={[styles.typeButton, taskType === 'permanent' ? styles.typeButtonActive : null]}
-                  onPress={() => setTaskType('permanent')}
+                  onPress={() => { Keyboard.dismiss(); setTaskType('permanent'); }}
                 >
                   <Text style={[styles.typeButtonText, taskType === 'permanent' ? styles.typeTextActive : null]}>
                     🏛️ Permanent
@@ -961,7 +976,7 @@ export default function Dashboard() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.typeButton, taskType === 'temporary' ? styles.typeButtonActive : null]}
-                  onPress={() => setTaskType('temporary')}
+                  onPress={() => { Keyboard.dismiss(); setTaskType('temporary'); }}
                 >
                   <Text style={[styles.typeButtonText, taskType === 'temporary' ? styles.typeTextActive : null]}>
                     ⏳ Temporary
@@ -984,11 +999,19 @@ export default function Dashboard() {
               )}
 
               <View style={styles.modalActionsRow}>
-                <TouchableOpacity style={styles.modalHalfCancelBtn} onPress={() => setIsModalVisible(false)}>
+                <TouchableOpacity 
+                  style={styles.modalHalfCancelBtn} 
+                  onPress={() => { Keyboard.dismiss(); setIsModalVisible(false); }}
+                >
                   <Text style={styles.cancelButtonText}>CANCEL</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.modalHalfAddBtn} onPress={handleAddNewTask} disabled={addingTask}>
+                <TouchableOpacity 
+                  style={styles.modalHalfAddBtn} 
+                  onPress={handleAddNewTask} 
+                  disabled={addingTask}
+                  activeOpacity={0.7}
+                >
                   <Text style={styles.addSubmitText}>{addingTask ? 'ADDING...' : 'ADD QUEST ⚔️'}</Text>
                 </TouchableOpacity>
               </View>
@@ -1235,7 +1258,6 @@ const styles = StyleSheet.create({
   calendarDayTextSelected: { color: '#0a0e27', fontWeight: '900' },
   calendarDayTextDisabled: { color: '#8b9dc3' },
   selectedDatePreview: { color: '#00d4ff', textAlign: 'center', fontWeight: '800', marginTop: 12, fontSize: 13 },
-  calendarActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
 
   videoOverlayContainer: { flex: 1, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
   fullVideo: { width: '100%', height: '100%' },
